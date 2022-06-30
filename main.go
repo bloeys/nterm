@@ -57,13 +57,18 @@ func main() {
 type FontTexAtlas struct {
 	Img        *image.RGBA
 	Glyphs     map[rune]FontTexAtlasGlyph
-	GlyphSizeU float32
-	GlyphSizeV float32
+	LineHeight int
 }
 
 type FontTexAtlasGlyph struct {
-	U float32
-	V float32
+	U     float32
+	V     float32
+	SizeU float32
+	SizeV float32
+
+	Ascent  float32
+	Descent float32
+	Advance float32
 }
 
 var atlas *FontTexAtlas
@@ -80,7 +85,7 @@ func (p *program) Init() {
 		panic("Failed to parse font. Err: " + err.Error())
 	}
 
-	pointSize := 40
+	pointSize := 64
 	face := truetype.NewFace(f, &truetype.Options{Size: float64(pointSize), DPI: 72})
 	atlas = genTextureAtlas(f, face, pointSize)
 }
@@ -121,8 +126,7 @@ func genTextureAtlas(f *truetype.Font, face font.Face, textSize int) *FontTexAtl
 	atlas := &FontTexAtlas{
 		Img:        image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
 		Glyphs:     make(map[rune]FontTexAtlasGlyph, len(glyphs)),
-		GlyphSizeU: float32(charWidth) / float32(atlasSizeX),
-		GlyphSizeV: float32(lineHeight) / float32(atlasSizeY),
+		LineHeight: lineHeight,
 	}
 
 	//Clear background to black
@@ -140,9 +144,24 @@ func genTextureAtlas(f *truetype.Font, face font.Face, textSize int) *FontTexAtl
 	drawer.Dot = fixed.P(0, lineHeight)
 	for _, g := range glyphs {
 
+		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
+
+		descent := gBounds.Max.Y
+		advanceRounded := gAdvanceFixed.Round()
+		ascent := -gBounds.Min.Y
+
+		heightRounded := (ascent + descent).Round()
+
 		atlas.Glyphs[g] = FontTexAtlasGlyph{
-			U: float32(drawer.Dot.X.Floor()) / float32(atlasSizeX),
-			V: (float32(atlasSizeY-drawer.Dot.Y.Floor()) / float32(atlasSizeY)),
+			U: float32(drawer.Dot.X.Round()) / float32(atlasSizeX),
+			V: (float32(atlasSizeY-(drawer.Dot.Y+descent).Round()) / float32(atlasSizeY)),
+
+			SizeU: float32(advanceRounded) / float32(atlasSizeX),
+			SizeV: (float32(heightRounded) / float32(atlasSizeY)),
+
+			Ascent:  float32(ascent.Round()),
+			Descent: float32(descent.Round()),
+			Advance: float32(advanceRounded),
 		}
 		drawer.DrawString(string(g))
 
@@ -190,7 +209,7 @@ func (p *program) Update() {
 }
 
 func (p *program) Render() {
-	p.drawTextOpenGL(atlas, "Hello friend", gglm.NewVec3(-9, 0, 0))
+	p.drawTextOpenGL(atlas, "Hello friend.\nHow are you?", gglm.NewVec3(0, 100, 0))
 }
 
 func (p *program) FrameEnd() {
@@ -263,7 +282,7 @@ func getGlyphsFromRanges(ranges [][2]rune) []rune {
 var glyphMesh *meshes.Mesh
 var glyphMat *materials.Material
 
-func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, pos *gglm.Vec3) {
+func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *gglm.Vec3) {
 
 	if glyphMesh == nil {
 		glyphMesh = &meshes.Mesh{
@@ -321,26 +340,28 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, pos *gglm.Vec
 	//Prepare to draw
 	glyphMesh.Buf.Bind()
 
-	glyphMat.DiffuseTex = atlasTex.TexID
-	glyphMat.SetAttribute(glyphMesh.Buf)
-
-	projMtx := gglm.Ortho(-10, 10, 10, -10, 0.1, 10)
+	//The projection matrix fits the screen size. This is needed so we can size and position characters correctly.
+	w, h := p.win.SDLWin.GetSize()
+	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 10)
 	viewMat := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 
+	glyphMat.DiffuseTex = atlasTex.TexID
+	glyphMat.SetAttribute(glyphMesh.Buf)
 	glyphMat.SetUnifMat4("projMat", &projMtx.Mat4)
 	glyphMat.SetUnifMat4("viewMat", &viewMat.Mat4)
 	glyphMat.Bind()
 
+	//Draw
+	pos := startPos.Clone()
 	rs := []rune(text)
-	tr := gglm.NewTrMatId()
-	tr.Translate(pos)
-	tr.Scale(gglm.NewVec3(1, 1, 1))
 	for i := 0; i < len(rs); i++ {
 
 		r := rs[i]
 		g := atlas.Glyphs[r]
-		if g.U < 0 {
-			print(g.U)
+		if r == '\n' {
+			startPos.SetY(startPos.Y() - float32(atlas.LineHeight))
+			pos = startPos.Clone()
+			continue
 		}
 
 		glyphMesh.Buf.SetData([]float32{
@@ -349,22 +370,32 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, pos *gglm.Vec
 			1, 1, 1, 1,
 
 			0.5, -0.5, 0,
-			g.U + atlas.GlyphSizeU, g.V,
+			g.U + g.SizeU, g.V,
 			1, 1, 1, 1,
 
 			-0.5, 0.5, 0,
-			g.U, g.V + atlas.GlyphSizeV,
+			g.U, g.V + g.SizeV,
 			1, 1, 1, 1,
 
 			0.5, 0.5, 0,
-			g.U + atlas.GlyphSizeU, g.V + atlas.GlyphSizeV,
+			g.U + g.SizeU, g.V + g.SizeV,
 			1, 1, 1, 1,
 		})
 		glyphMesh.Buf.Bind()
 
-		p.rend.Draw(glyphMesh, tr, glyphMat)
+		height := float32(g.Ascent + g.Descent)
+		scale := gglm.NewVec3(g.Advance, height, 1)
 
-		tr.Translate(gglm.NewVec3(1, 0, 0))
+		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
+		//Quads are drawn from the center and so that's our baseline. But chars shouldn't be centered, they should follow ascent/decent/advance.
+		//To make them do that vertically, we raise them above the baseline (y+height/2), then since they are sitting on top of the baseline we can simply
+		//move them down by the decent amount to put them in the correct vertical position.
+		//
+		//Horizontally the character should be drawn from the left edge not the center, so we just move it forward by advance/2
+		drawPos := *pos
+		drawPos.Add(gglm.NewVec3(g.Advance*0.5, height*0.5-g.Descent, 0))
+
+		p.rend.Draw(glyphMesh, gglm.NewTrMatId().Translate(&drawPos).Scale(scale), glyphMat)
+		pos.SetX(pos.X() + g.Advance)
 	}
-
 }
