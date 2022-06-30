@@ -8,20 +8,36 @@ import (
 	"os"
 	"unicode"
 
+	"github.com/bloeys/gglm/gglm"
+	"github.com/bloeys/nmage/assets"
+	"github.com/bloeys/nmage/buffers"
 	"github.com/bloeys/nmage/engine"
 	"github.com/bloeys/nmage/input"
+	"github.com/bloeys/nmage/materials"
+	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
 	"github.com/bloeys/nterm/assert"
+	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/golang/freetype/truetype"
 	"github.com/veandco/go-sdl2/sdl"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
 
+var _ engine.Game = &program{}
+
+type program struct {
+	shouldRun bool
+	win       *engine.Window
+	rend      *rend3dgl.Rend3DGL
+	imguiInfo nmageimgui.ImguiInfo
+}
+
 func main() {
 
-	win, err := engine.CreateOpenGLWindowCentered("nTerm", 1280, 720, engine.WindowFlags_ALLOW_HIGHDPI|engine.WindowFlags_RESIZABLE, rend3dgl.NewRend3DGL())
+	rend := rend3dgl.NewRend3DGL()
+	win, err := engine.CreateOpenGLWindowCentered("nTerm", 1280, 720, engine.WindowFlags_ALLOW_HIGHDPI|engine.WindowFlags_RESIZABLE, rend)
 	if err != nil {
 		panic("Failed to create window. Err: " + err.Error())
 	}
@@ -31,19 +47,26 @@ func main() {
 	p := &program{
 		shouldRun: true,
 		win:       win,
+		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
 	}
 
 	engine.Run(p)
 }
 
-var _ engine.Game = &program{}
-
-type program struct {
-	shouldRun bool
-	win       *engine.Window
-	imguiInfo nmageimgui.ImguiInfo
+type FontTexAtlas struct {
+	Img        *image.RGBA
+	Glyphs     map[rune]FontTexAtlasGlyph
+	GlyphSizeU float32
+	GlyphSizeV float32
 }
+
+type FontTexAtlasGlyph struct {
+	U float32
+	V float32
+}
+
+var atlas *FontTexAtlas
 
 func (p *program) Init() {
 
@@ -59,17 +82,7 @@ func (p *program) Init() {
 
 	pointSize := 40
 	face := truetype.NewFace(f, &truetype.Options{Size: float64(pointSize), DPI: 72})
-	genTextureAtlas(f, face, pointSize)
-}
-
-type FontTexAtlas struct {
-	Img    *image.RGBA
-	Glyphs map[rune]FontTexAtlasGlyph
-}
-
-type FontTexAtlasGlyph struct {
-	U float32
-	V float32
+	atlas = genTextureAtlas(f, face, pointSize)
 }
 
 func genTextureAtlas(f *truetype.Font, face font.Face, textSize int) *FontTexAtlas {
@@ -106,16 +119,18 @@ func genTextureAtlas(f *truetype.Font, face font.Face, textSize int) *FontTexAtl
 
 	//Create atlas
 	atlas := &FontTexAtlas{
-		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
-		Glyphs: make(map[rune]FontTexAtlasGlyph, len(glyphs)),
+		Img:        image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
+		Glyphs:     make(map[rune]FontTexAtlasGlyph, len(glyphs)),
+		GlyphSizeU: float32(charWidth) / float32(atlasSizeX),
+		GlyphSizeV: float32(lineHeight) / float32(atlasSizeY),
 	}
 
-	//Clear img to white
-	draw.Draw(atlas.Img, atlas.Img.Bounds(), image.White, image.Point{}, draw.Src)
+	//Clear background to black
+	draw.Draw(atlas.Img, atlas.Img.Bounds(), image.Black, image.Point{}, draw.Src)
 
 	drawer := &font.Drawer{
 		Dst:  atlas.Img,
-		Src:  image.Black,
+		Src:  image.White,
 		Face: face,
 	}
 
@@ -175,11 +190,10 @@ func (p *program) Update() {
 }
 
 func (p *program) Render() {
-
+	p.drawTextOpenGL(atlas, "Hello friend", gglm.NewVec3(-9, 0, 0))
 }
 
 func (p *program) FrameEnd() {
-
 }
 
 func (g *program) GetWindow() *engine.Window {
@@ -244,4 +258,113 @@ func getGlyphsFromRanges(ranges [][2]rune) []rune {
 	}
 
 	return out
+}
+
+var glyphMesh *meshes.Mesh
+var glyphMat *materials.Material
+
+func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, pos *gglm.Vec3) {
+
+	if glyphMesh == nil {
+		glyphMesh = &meshes.Mesh{
+			Name: "glypQuad",
+
+			//VertPos, UV, Color
+			Buf: buffers.NewBuffer(
+				buffers.Element{ElementType: buffers.DataTypeVec3},
+				buffers.Element{ElementType: buffers.DataTypeVec2},
+				buffers.Element{ElementType: buffers.DataTypeVec4},
+			),
+		}
+
+		glyphMesh.Buf.SetData([]float32{
+			-0.5, -0.5, 0,
+			0, 0,
+			1, 1, 1, 1,
+
+			0.5, -0.5, 0,
+			1, 0,
+			1, 1, 1, 1,
+
+			-0.5, 0.5, 0,
+			0, 1,
+			1, 1, 1, 1,
+
+			0.5, 0.5, 0,
+			1, 1,
+			1, 1, 1, 1,
+		})
+
+		glyphMesh.Buf.SetIndexBufData([]uint32{
+			0, 1, 2,
+			1, 3, 2,
+		})
+	}
+
+	if glyphMat == nil {
+		glyphMat = materials.NewMaterial("glyphMat", "./res/shaders/glyph")
+	}
+
+	//Load texture
+	atlasTex, err := assets.LoadPNGTexture("./atlas.png")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, atlasTex.TexID)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+
+	//Prepare to draw
+	glyphMesh.Buf.Bind()
+
+	glyphMat.DiffuseTex = atlasTex.TexID
+	glyphMat.SetAttribute(glyphMesh.Buf)
+
+	projMtx := gglm.Ortho(-10, 10, 10, -10, 0.1, 10)
+	viewMat := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
+
+	glyphMat.SetUnifMat4("projMat", &projMtx.Mat4)
+	glyphMat.SetUnifMat4("viewMat", &viewMat.Mat4)
+	glyphMat.Bind()
+
+	rs := []rune(text)
+	tr := gglm.NewTrMatId()
+	tr.Translate(pos)
+	tr.Scale(gglm.NewVec3(1, 1, 1))
+	for i := 0; i < len(rs); i++ {
+
+		r := rs[i]
+		g := atlas.Glyphs[r]
+		if g.U < 0 {
+			print(g.U)
+		}
+
+		glyphMesh.Buf.SetData([]float32{
+			-0.5, -0.5, 0,
+			g.U, g.V,
+			1, 1, 1, 1,
+
+			0.5, -0.5, 0,
+			g.U + atlas.GlyphSizeU, g.V,
+			1, 1, 1, 1,
+
+			-0.5, 0.5, 0,
+			g.U, g.V + atlas.GlyphSizeV,
+			1, 1, 1, 1,
+
+			0.5, 0.5, 0,
+			g.U + atlas.GlyphSizeU, g.V + atlas.GlyphSizeV,
+			1, 1, 1, 1,
+		})
+		glyphMesh.Buf.Bind()
+
+		p.rend.Draw(glyphMesh, tr, glyphMat)
+
+		tr.Translate(gglm.NewVec3(1, 0, 0))
+	}
+
 }
