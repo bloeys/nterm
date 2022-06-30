@@ -1,10 +1,14 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/bloeys/nmage/engine"
 	"github.com/bloeys/nmage/input"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
+	"github.com/golang/freetype/truetype"
 )
 
 var _ engine.Game = &program{}
@@ -17,6 +21,18 @@ type program struct {
 
 func (p *program) Init() {
 
+	fBytes, err := os.ReadFile("./res/fonts/Consolas.ttf")
+	if err != nil {
+		panic("Failed to read font. Err: " + err.Error())
+	}
+
+	f, err := truetype.Parse(fBytes)
+	if err != nil {
+		panic("Failed to parse font. Err: " + err.Error())
+	}
+
+	face := truetype.NewFace(f, &truetype.Options{Size: 12, DPI: 72})
+	fmt.Println(face.Metrics())
 }
 
 func (p *program) Start() {
