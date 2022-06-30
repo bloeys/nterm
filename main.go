@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/draw"
 	"image/png"
 	"math"
 	"os"
+	"time"
 	"unicode"
 
 	"github.com/bloeys/gglm/gglm"
@@ -71,26 +73,38 @@ type FontTexAtlasGlyph struct {
 	Advance float32
 }
 
+var fontPointSize uint = 32
 var atlas *FontTexAtlas
+var atlasTex assets.Texture
 
 func (p *program) Init() {
 
-	fBytes, err := os.ReadFile("./res/fonts/Consolas.ttf")
+	var err error
+	atlas, err = createAtlasFromFontFile("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(fontPointSize), DPI: 72})
 	if err != nil {
-		panic("Failed to read font. Err: " + err.Error())
+		panic("Failed to create atlas from font file. Err: " + err.Error())
+	}
+}
+
+func createAtlasFromFontFile(fontFile string, faceOptions *truetype.Options) (*FontTexAtlas, error) {
+
+	fBytes, err := os.ReadFile(fontFile)
+	if err != nil {
+		return nil, err
 	}
 
 	f, err := truetype.Parse(fBytes)
 	if err != nil {
-		panic("Failed to parse font. Err: " + err.Error())
+		return nil, err
 	}
 
-	pointSize := 64
-	face := truetype.NewFace(f, &truetype.Options{Size: float64(pointSize), DPI: 72})
-	atlas = genTextureAtlas(f, face, pointSize)
+	face := truetype.NewFace(f, faceOptions)
+	atlas := genTextureAtlasFromFace(f, face, uint(faceOptions.Size))
+
+	return atlas, nil
 }
 
-func genTextureAtlas(f *truetype.Font, face font.Face, textSize int) *FontTexAtlas {
+func genTextureAtlasFromFace(f *truetype.Font, face font.Face, pointSize uint) *FontTexAtlas {
 
 	const maxAtlasSize = 8192
 
@@ -197,8 +211,11 @@ func (p *program) Start() {
 
 }
 
-func (p *program) FrameStart() {
+var frameStartTime time.Time
+var frameTime time.Duration = 16 * time.Millisecond
 
+func (p *program) FrameStart() {
+	frameStartTime = time.Now()
 }
 
 func (p *program) Update() {
@@ -206,13 +223,75 @@ func (p *program) Update() {
 	if input.IsQuitClicked() || input.KeyClicked(sdl.K_ESCAPE) {
 		p.shouldRun = false
 	}
+
+	if input.KeyClicked(sdl.K_KP_PLUS) {
+
+		fontPointSize += 2
+
+		var err error
+		atlas, err = createAtlasFromFontFile("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(fontPointSize), DPI: 72})
+		if err != nil {
+			panic("Failed to create atlas from font file. Err: " + err.Error())
+		}
+
+		//Delete old opengl texture
+		gl.DeleteTextures(1, &atlasTex.TexID)
+		delete(assets.TexturePaths, "./res/fonts/Consolas.ttf")
+		delete(assets.Textures, atlasTex.TexID)
+
+		atlasTex.TexID = 0
+	}
+
+	if input.KeyClicked(sdl.K_KP_MINUS) {
+
+		fontPointSize -= 2
+
+		var err error
+		atlas, err = createAtlasFromFontFile("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(fontPointSize), DPI: 72})
+		if err != nil {
+			panic("Failed to create atlas from font file. Err: " + err.Error())
+		}
+
+		//Delete old opengl texture
+		gl.DeleteTextures(1, &atlasTex.TexID)
+		delete(assets.TexturePaths, "./res/fonts/Consolas.ttf")
+		delete(assets.Textures, atlasTex.TexID)
+		atlasTex.TexID = 0
+	}
 }
 
 func (p *program) Render() {
-	p.drawTextOpenGL(atlas, "Hello friend.\nHow are you?", gglm.NewVec3(0, 100, 0))
+
+	_, h := p.win.SDLWin.GetSize()
+
+	startFromTop := float32(h) - float32(atlas.LineHeight)
+	p.drawTextOpenGL(atlas, fmt.Sprintf("Point size=%d", fontPointSize), gglm.NewVec3(0, startFromTop, 0))
+
+	startFromTop -= float32(atlas.LineHeight)
+	p.drawTextOpenGL(atlas, fmt.Sprintf("Texture size=%d*%d", atlasTex.Width, atlasTex.Height), gglm.NewVec3(0, startFromTop, 0))
+
+	// fps := timing.GetAvgFPS()
+	var fps float32
+	if frameTime.Milliseconds() > 0 {
+		fps = 1 / float32(frameTime.Milliseconds()) * 1000
+	}
+	startFromTop -= float32(atlas.LineHeight)
+	p.drawTextOpenGL(atlas, fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(0, startFromTop, 0))
+
+	//From bottom
+	count := 100
+	drawnChars := len("Hello friend.\nHow are you?") * count
+	println("Drawn chars:", drawnChars)
+
+	startFromBot := float32(atlas.LineHeight)
+	for i := 0; i < count; i++ {
+		p.drawTextOpenGL(atlas, "Hello friend.\nHow are you?", gglm.NewVec3(0, startFromBot, 0))
+		startFromBot += float32(atlas.LineHeight) * 2
+	}
 }
 
 func (p *program) FrameEnd() {
+	frameTime = time.Since(frameStartTime)
 }
 
 func (g *program) GetWindow() *engine.Window {
@@ -324,18 +403,21 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *ggl
 		glyphMat = materials.NewMaterial("glyphMat", "./res/shaders/glyph")
 	}
 
-	//Load texture
-	atlasTex, err := assets.LoadPNGTexture("./atlas.png")
-	if err != nil {
-		panic(err.Error())
-	}
+	if atlasTex.TexID == 0 {
 
-	gl.BindTexture(gl.TEXTURE_2D, atlasTex.TexID)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.BindTexture(gl.TEXTURE_2D, 0)
+		var err error
+		atlasTex, err = assets.LoadPNGTexture("./atlas.png")
+		if err != nil {
+			panic(err.Error())
+		}
+
+		gl.BindTexture(gl.TEXTURE_2D, atlasTex.TexID)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.BindTexture(gl.TEXTURE_2D, 0)
+	}
 
 	//Prepare to draw
 	glyphMesh.Buf.Bind()
