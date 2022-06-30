@@ -32,7 +32,6 @@ func (p *program) Update() {
 	if input.IsQuitClicked() {
 		p.shouldRun = false
 	}
-
 }
 
 func (p *program) Render() {
@@ -65,6 +64,8 @@ func main() {
 	if err != nil {
 		panic("Failed to create window. Err: " + err.Error())
 	}
+
+	engine.SetVSync(true)
 
 	p := &program{
 		shouldRun: true,
