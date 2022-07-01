@@ -6,6 +6,7 @@ import (
 	"image/draw"
 	"image/png"
 	"math"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -280,25 +281,26 @@ func (p *program) Render() {
 
 	w, h := p.win.SDLWin.GetSize()
 
-	startFromTop := float32(h) - float32(atlas.LineHeight)
-	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("Point size=%d", fontPointSize), gglm.NewVec3(0, startFromTop, 0), w, h)
-
-	startFromTop -= float32(atlas.LineHeight)
-	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("Texture size=%d*%d", atlasTex.Width, atlasTex.Height), gglm.NewVec3(0, startFromTop, 0), w, h)
-
-	// fps := timing.GetAvgFPS()
+	//Draw FPS
 	var fps float32
 	if frameTime.Milliseconds() > 0 {
 		fps = 1 / float32(frameTime.Milliseconds()) * 1000
 	}
-	startFromTop -= float32(atlas.LineHeight)
-	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(float32(w)*0.8, float32(h)-float32(atlas.LineHeight), 0), w, h)
+	startFromTop := float32(h) - float32(atlas.LineHeight)
+	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), w, h)
 
-	//From bottom
+	//Draw point and texture sizes
+	startFromTop -= float32(atlas.LineHeight)
+	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("Point size=%d", fontPointSize), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), w, h)
+
+	startFromTop -= float32(atlas.LineHeight)
+	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("Texture size=%d*%d", atlasTex.Width, atlasTex.Height), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), w, h)
+
+	//Draw all other
 	count := 1000
 	startFromBot := float32(atlas.LineHeight)
 	for i := 0; i < count; i++ {
-		glyphRend.drawTextOpenGL(atlas, "Hello friend.\nHow are you?", gglm.NewVec3(0, startFromBot, 0), w, h)
+		glyphRend.drawTextOpenGL(atlas, "Hello friend, how are you?\n", gglm.NewVec3(0, startFromBot, 0), w, h)
 		startFromBot += float32(atlas.LineHeight) * 2
 	}
 
@@ -453,6 +455,10 @@ func (gr *GlyphRend) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *
 	rs := []rune(text)
 	const floatsPerGlyph = 18
 
+	rCol := rand.Float32()
+	gCol := rand.Float32()
+	bCol := rand.Float32()
+
 	pos := startPos.Clone()
 	instancedData := make([]float32, 0, len(rs)*floatsPerGlyph) //This a larger approximation than needed because we don't count spaces etc
 	for i := 0; i < len(rs); i++ {
@@ -485,7 +491,7 @@ func (gr *GlyphRend) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *
 			g.U, g.V + g.SizeV,
 			g.U + g.SizeU, g.V + g.SizeV,
 
-			1, 1, 1, 1, //Color
+			rCol, gCol, bCol, 1, //Color
 			drawPos.X(), drawPos.Y(), drawPos.Z(), //Model pos
 			scale.X(), scale.Y(), scale.Z(), //Model scale
 		}...)
