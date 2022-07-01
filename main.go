@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"math"
 	"os"
+	"sync"
 	"time"
 	"unicode"
 
@@ -36,7 +37,17 @@ type program struct {
 	imguiInfo nmageimgui.ImguiInfo
 }
 
+//nMage TODO:
+//* Assert that engine is inited
+//* Create VAO struct independent from VBO to support multi-VBO use cases (e.g. instancing)
+//* Move SetAttribute away from material struct
+
 func main() {
+
+	err := engine.Init()
+	if err != nil {
+		panic("Failed to init engine. Err: " + err.Error())
+	}
 
 	rend := rend3dgl.NewRend3DGL()
 	win, err := engine.CreateOpenGLWindowCentered("nTerm", 1280, 720, engine.WindowFlags_ALLOW_HIGHDPI|engine.WindowFlags_RESIZABLE, rend)
@@ -76,6 +87,7 @@ type FontTexAtlasGlyph struct {
 var fontPointSize uint = 32
 var atlas *FontTexAtlas
 var atlasTex assets.Texture
+var glyphRend *GlyphRend
 
 func (p *program) Init() {
 
@@ -84,6 +96,8 @@ func (p *program) Init() {
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
+
+	glyphRend = NewGlyphRend()
 }
 
 func createAtlasFromFontFile(fontFile string, faceOptions *truetype.Options) (*FontTexAtlas, error) {
@@ -260,15 +274,17 @@ func (p *program) Update() {
 	}
 }
 
+var gg = sync.Once{}
+
 func (p *program) Render() {
 
-	_, h := p.win.SDLWin.GetSize()
+	w, h := p.win.SDLWin.GetSize()
 
 	startFromTop := float32(h) - float32(atlas.LineHeight)
-	p.drawTextOpenGL(atlas, fmt.Sprintf("Point size=%d", fontPointSize), gglm.NewVec3(0, startFromTop, 0))
+	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("Point size=%d", fontPointSize), gglm.NewVec3(0, startFromTop, 0), w, h)
 
 	startFromTop -= float32(atlas.LineHeight)
-	p.drawTextOpenGL(atlas, fmt.Sprintf("Texture size=%d*%d", atlasTex.Width, atlasTex.Height), gglm.NewVec3(0, startFromTop, 0))
+	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("Texture size=%d*%d", atlasTex.Width, atlasTex.Height), gglm.NewVec3(0, startFromTop, 0), w, h)
 
 	// fps := timing.GetAvgFPS()
 	var fps float32
@@ -276,18 +292,21 @@ func (p *program) Render() {
 		fps = 1 / float32(frameTime.Milliseconds()) * 1000
 	}
 	startFromTop -= float32(atlas.LineHeight)
-	p.drawTextOpenGL(atlas, fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(0, startFromTop, 0))
+	glyphRend.drawTextOpenGL(atlas, fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(float32(w)*0.8, float32(h)-float32(atlas.LineHeight), 0), w, h)
 
 	//From bottom
-	count := 5
-	drawnChars := len("Hello friend.\nHow are you?") * count
-	println("Drawn chars:", drawnChars)
-
+	count := 1000
 	startFromBot := float32(atlas.LineHeight)
 	for i := 0; i < count; i++ {
-		p.drawTextOpenGL(atlas, "Hello friend.\nHow are you?", gglm.NewVec3(0, startFromBot, 0))
+		glyphRend.drawTextOpenGL(atlas, "Hello friend.\nHow are you?", gglm.NewVec3(0, startFromBot, 0), w, h)
 		startFromBot += float32(atlas.LineHeight) * 2
 	}
+
+	gg.Do(func() {
+		fmt.Printf("Drawn chars: %d\n", glyphRend.GlyphCount)
+	})
+
+	glyphRend.Draw()
 }
 
 func (p *program) FrameEnd() {
@@ -358,46 +377,45 @@ func getGlyphsFromRanges(ranges [][2]rune) []rune {
 	return out
 }
 
-var glyphMesh *meshes.Mesh
 var glyphMat *materials.Material
 
-func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *gglm.Vec3) {
+func (gr *GlyphRend) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *gglm.Vec3, winWidth, winHeight int32) {
 
-	if glyphMesh == nil {
-		glyphMesh = &meshes.Mesh{
-			Name: "glypQuad",
+	// if glyphMesh == nil {
+	// 	glyphMesh = &meshes.Mesh{
+	// 		Name: "glypQuad",
 
-			//VertPos, UV, Color
-			Buf: buffers.NewBuffer(
-				buffers.Element{ElementType: buffers.DataTypeVec3},
-				buffers.Element{ElementType: buffers.DataTypeVec2},
-				buffers.Element{ElementType: buffers.DataTypeVec4},
-			),
-		}
+	// 		//VertPos, UV, Color
+	// 		Buf: buffers.NewBuffer(
+	// 			buffers.Element{ElementType: buffers.DataTypeVec3},
+	// 			buffers.Element{ElementType: buffers.DataTypeVec2},
+	// 			buffers.Element{ElementType: buffers.DataTypeVec4},
+	// 		),
+	// 	}
 
-		glyphMesh.Buf.SetData([]float32{
-			-0.5, -0.5, 0,
-			0, 0,
-			1, 1, 1, 1,
+	// 	glyphMesh.Buf.SetData([]float32{
+	// 		-0.5, -0.5, 0,
+	// 		0, 0,
+	// 		1, 1, 1, 1,
 
-			0.5, -0.5, 0,
-			1, 0,
-			1, 1, 1, 1,
+	// 		0.5, -0.5, 0,
+	// 		1, 0,
+	// 		1, 1, 1, 1,
 
-			-0.5, 0.5, 0,
-			0, 1,
-			1, 1, 1, 1,
+	// 		-0.5, 0.5, 0,
+	// 		0, 1,
+	// 		1, 1, 1, 1,
 
-			0.5, 0.5, 0,
-			1, 1,
-			1, 1, 1, 1,
-		})
+	// 		0.5, 0.5, 0,
+	// 		1, 1,
+	// 		1, 1, 1, 1,
+	// 	})
 
-		glyphMesh.Buf.SetIndexBufData([]uint32{
-			0, 1, 2,
-			1, 3, 2,
-		})
-	}
+	// 	glyphMesh.Buf.SetIndexBufData([]uint32{
+	// 		0, 1, 2,
+	// 		1, 3, 2,
+	// 	})
+	// }
 
 	if glyphMat == nil {
 		glyphMat = materials.NewMaterial("glyphMat", "./res/shaders/glyph")
@@ -420,24 +438,23 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *ggl
 	}
 
 	//Prepare to draw
-	glyphMesh.Buf.Bind()
+	// glyphMesh.Buf.Bind()
 
 	//The projection matrix fits the screen size. This is needed so we can size and position characters correctly.
-	w, h := p.win.SDLWin.GetSize()
-	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 10)
-	viewMat := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
+	projMtx := gglm.Ortho(0, float32(winWidth), float32(winHeight), 0, 0.1, 10)
+	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
+	projViewMtx := projMtx.Clone().Mul(viewMtx)
 
 	glyphMat.DiffuseTex = atlasTex.TexID
-	glyphMat.SetAttribute(glyphMesh.Buf)
-	glyphMat.SetUnifMat4("projMat", &projMtx.Mat4)
-	glyphMat.SetUnifMat4("viewMat", &viewMat.Mat4)
+	glyphMat.SetUnifMat4("projViewMat", &projViewMtx.Mat4)
 	glyphMat.Bind()
 
-	//Draw
-	pos := startPos.Clone()
-	tr := gglm.NewTrMatId()
-
+	//Prepass to pre-allocate the buffer
 	rs := []rune(text)
+	const floatsPerGlyph = 18
+
+	pos := startPos.Clone()
+	instancedData := make([]float32, 0, len(rs)*floatsPerGlyph) //This a larger approximation than needed because we don't count spaces etc
 	for i := 0; i < len(rs); i++ {
 
 		r := rs[i]
@@ -447,25 +464,7 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *ggl
 			pos = startPos.Clone()
 			continue
 		}
-
-		glyphMesh.Buf.SetData([]float32{
-			-0.5, -0.5, 0,
-			g.U, g.V,
-			1, 1, 1, 1,
-
-			0.5, -0.5, 0,
-			g.U + g.SizeU, g.V,
-			1, 1, 1, 1,
-
-			-0.5, 0.5, 0,
-			g.U, g.V + g.SizeV,
-			1, 1, 1, 1,
-
-			0.5, 0.5, 0,
-			g.U + g.SizeU, g.V + g.SizeV,
-			1, 1, 1, 1,
-		})
-		glyphMesh.Buf.Bind()
+		gr.GlyphCount++
 
 		height := float32(g.Ascent + g.Descent)
 		scale := gglm.NewVec3(g.Advance, height, 1)
@@ -480,18 +479,139 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *ggl
 		drawPos.SetX(drawPos.X() + g.Advance*0.5)
 		drawPos.SetY(drawPos.Y() + height*0.5 - g.Descent)
 
-		//Set position and scale then update gpu
-		tr.Set(0, 3, drawPos.X())
-		tr.Set(1, 3, drawPos.Y())
-		tr.Set(2, 3, drawPos.Z())
+		instancedData = append(instancedData, []float32{
+			g.U, g.V,
+			g.U + g.SizeU, g.V,
+			g.U, g.V + g.SizeV,
+			g.U + g.SizeU, g.V + g.SizeV,
 
-		tr.Set(0, 0, scale.X())
-		tr.Set(1, 1, scale.Y())
-		tr.Set(2, 2, scale.Z())
-		glyphMat.SetUnifMat4("modelMat", &tr.Mat4)
+			1, 1, 1, 1, //Color
+			drawPos.X(), drawPos.Y(), drawPos.Z(), //Model pos
+			scale.X(), scale.Y(), scale.Z(), //Model scale
+		}...)
 
-		gl.DrawElements(gl.TRIANGLES, glyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0))
-		// p.rend.Draw(glyphMesh, gglm.NewTrMatId().Translate(&drawPos).Scale(scale), glyphMat)
 		pos.SetX(pos.X() + g.Advance)
+	}
+
+	gr.GlyphVBO = append(gr.GlyphVBO, instancedData...)
+}
+
+type GlyphRend struct {
+	InstancedBuf buffers.Buffer
+	GlyphMesh    *meshes.Mesh
+	GlyphCount   int32
+	GlyphVBO     []float32
+}
+
+func (gr *GlyphRend) Draw() {
+
+	gr.InstancedBuf.SetData(gr.GlyphVBO)
+
+	gr.InstancedBuf.Bind()
+	glyphMat.Bind()
+	//  gl.DrawElements(gl.TRIANGLES, mesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0))
+	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), gr.GlyphCount)
+	gr.InstancedBuf.UnBind()
+
+	gr.GlyphCount = 0
+	gr.GlyphVBO = []float32{}
+}
+
+func NewGlyphRend() *GlyphRend {
+
+	//Create glyph mesh
+	glyphMesh := &meshes.Mesh{
+		Name: "glypQuad",
+
+		//VertPos, UV, Color; Instanced attributes are stored separately
+		Buf: buffers.NewBuffer(
+			buffers.Element{ElementType: buffers.DataTypeVec3},
+		),
+	}
+
+	glyphMesh.Buf.SetData([]float32{
+		-0.5, -0.5, 0,
+		0.5, -0.5, 0,
+		-0.5, 0.5, 0,
+		0.5, 0.5, 0,
+	})
+
+	glyphMesh.Buf.SetIndexBufData([]uint32{
+		0, 1, 2,
+		1, 3, 2,
+	})
+
+	(*materials.Material).SetAttribute(nil, glyphMesh.Buf)
+
+	//Create instanced buf and set its instanced attributes.
+	//Multiple VBOs under one VAO, one VBO for vertex data, and one VBO for instanced data.
+	instancedBuf := buffers.Buffer{
+		VAOID: glyphMesh.Buf.VAOID,
+	}
+	instancedBuf.SetLayout(
+		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVST0
+		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVST1
+		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVST2
+		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVST3
+
+		buffers.Element{ElementType: buffers.DataTypeVec4}, //Color
+		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelPos
+		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelScale
+	)
+
+	gl.GenBuffers(1, &instancedBuf.BufID)
+	if instancedBuf.BufID == 0 {
+		panic("Failed to create openGL buffer")
+	}
+
+	instancedBuf.Bind()
+	gl.BindBuffer(gl.ARRAY_BUFFER, instancedBuf.BufID)
+	layout := instancedBuf.GetLayout()
+
+	//4 UV values
+	uvEle := layout[0]
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointer(1, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(uvEle.Offset))
+	gl.VertexAttribDivisor(1, 1)
+
+	uvEle = layout[1]
+	gl.EnableVertexAttribArray(2)
+	gl.VertexAttribPointer(2, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(uvEle.Offset))
+	gl.VertexAttribDivisor(2, 1)
+
+	uvEle = layout[2]
+	gl.EnableVertexAttribArray(3)
+	gl.VertexAttribPointer(3, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(uvEle.Offset))
+	gl.VertexAttribDivisor(3, 1)
+
+	uvEle = layout[3]
+	gl.EnableVertexAttribArray(4)
+	gl.VertexAttribPointer(4, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(uvEle.Offset))
+	gl.VertexAttribDivisor(4, 1)
+
+	//Rest of instanced attributes
+	colorEle := layout[4]
+	gl.EnableVertexAttribArray(5)
+	gl.VertexAttribPointer(5, colorEle.ElementType.CompCount(), colorEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(colorEle.Offset))
+	gl.VertexAttribDivisor(5, 1)
+
+	posEle := layout[5]
+	gl.EnableVertexAttribArray(6)
+	gl.VertexAttribPointer(6, posEle.ElementType.CompCount(), posEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(posEle.Offset))
+	gl.VertexAttribDivisor(6, 1)
+
+	scaleEle := layout[6]
+	gl.EnableVertexAttribArray(7)
+	gl.VertexAttribPointer(7, scaleEle.ElementType.CompCount(), scaleEle.ElementType.GLType(), false, instancedBuf.Stride, gl.PtrOffset(scaleEle.Offset))
+	gl.VertexAttribDivisor(7, 1)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	instancedBuf.UnBind()
+
+	return &GlyphRend{
+		GlyphMesh:    glyphMesh,
+		InstancedBuf: instancedBuf,
+		GlyphCount:   0,
+		GlyphVBO:     make([]float32, 0),
 	}
 }
