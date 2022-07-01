@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/bloeys/gglm/gglm"
@@ -22,6 +21,9 @@ type program struct {
 	win       *engine.Window
 	rend      *rend3dgl.Rend3DGL
 	imguiInfo nmageimgui.ImguiInfo
+
+	FontSize  uint32
+	GlyphRend *glyphs.GlyphRend
 }
 
 //nMage TODO:
@@ -30,6 +32,7 @@ type program struct {
 //	* Move SetAttribute away from material struct
 //	* Fix FPS counter
 //	* Allow texture loading without cache
+//	* Reduce/remove Game interface
 
 func main() {
 
@@ -51,18 +54,28 @@ func main() {
 		win:       win,
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
+
+		FontSize: 32,
 	}
+
+	p.win.EventCallbacks = append(p.win.EventCallbacks, func(e sdl.Event) {
+		switch e := e.(type) {
+		case *sdl.WindowEvent:
+			if e.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
+				p.handleWindowResize()
+			}
+		}
+	})
 
 	engine.Run(p)
 }
 
-var fontPointSize uint = 32
-var glyphRend *glyphs.GlyphRend
-
 func (p *program) Init() {
 
+	w, h := p.win.SDLWin.GetSize()
+
 	var err error
-	glyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(fontPointSize), DPI: 72})
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: 72}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
@@ -87,52 +100,47 @@ func (p *program) Update() {
 
 	fontSizeChanged := false
 	if input.KeyClicked(sdl.K_KP_PLUS) {
-		fontPointSize += 2
+		p.FontSize += 2
 		fontSizeChanged = true
 	} else if input.KeyClicked(sdl.K_KP_MINUS) {
-		fontPointSize -= 2
+		p.FontSize -= 2
 		fontSizeChanged = true
 	}
 
 	if fontSizeChanged {
-		glyphRend.SetFace(&truetype.Options{Size: float64(fontPointSize), DPI: 72})
+		p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: 72})
 	}
 }
-
-var gg = sync.Once{}
 
 func (p *program) Render() {
 
 	w, h := p.win.SDLWin.GetSize()
+	textColor := gglm.NewVec4(1, 1, 1, 1)
 
 	//Draw FPS
 	var fps float32
 	if frameTime.Milliseconds() > 0 {
 		fps = 1 / float32(frameTime.Milliseconds()) * 1000
 	}
-	startFromTop := float32(h) - float32(glyphRend.Atlas.LineHeight)
-	glyphRend.DrawTextOpenGL(fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), w, h)
+	startFromTop := float32(h) - float32(p.GlyphRend.Atlas.LineHeight)
+	p.GlyphRend.DrawTextOpenGL(fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), textColor)
 
 	//Draw point and texture sizes
-	startFromTop -= float32(glyphRend.Atlas.LineHeight)
-	glyphRend.DrawTextOpenGL(fmt.Sprintf("Point size=%d", fontPointSize), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), w, h)
+	startFromTop -= float32(p.GlyphRend.Atlas.LineHeight)
+	p.GlyphRend.DrawTextOpenGL(fmt.Sprintf("Point size=%d", p.FontSize), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), textColor)
 
-	startFromTop -= float32(glyphRend.Atlas.LineHeight)
-	glyphRend.DrawTextOpenGL(fmt.Sprintf("Texture size=%d*%d", glyphRend.Atlas.Img.Rect.Max.X, glyphRend.Atlas.Img.Rect.Max.Y), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), w, h)
+	startFromTop -= float32(p.GlyphRend.Atlas.LineHeight)
+	p.GlyphRend.DrawTextOpenGL(fmt.Sprintf("Texture size=%d*%d", p.GlyphRend.Atlas.Img.Rect.Max.X, p.GlyphRend.Atlas.Img.Rect.Max.Y), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), textColor)
 
 	//Draw all other
 	count := 1000
-	startFromBot := float32(glyphRend.Atlas.LineHeight)
+	startFromBot := float32(p.GlyphRend.Atlas.LineHeight)
 	for i := 0; i < count; i++ {
-		glyphRend.DrawTextOpenGL("Hello friend, how are you?\n", gglm.NewVec3(0, startFromBot, 0), w, h)
-		startFromBot += float32(glyphRend.Atlas.LineHeight) * 2
+		p.GlyphRend.DrawTextOpenGL("Hello friend, how are you?\n", gglm.NewVec3(0, startFromBot, 0), textColor)
+		startFromBot += float32(p.GlyphRend.Atlas.LineHeight) * 2
 	}
 
-	gg.Do(func() {
-		fmt.Printf("Drawn chars: %d\n", glyphRend.GlyphCount)
-	})
-
-	glyphRend.Draw()
+	p.GlyphRend.Draw()
 }
 
 func (p *program) FrameEnd() {
@@ -153,4 +161,9 @@ func (p *program) ShouldRun() bool {
 
 func (p *program) Deinit() {
 
+}
+
+func (p *program) handleWindowResize() {
+	w, h := p.win.SDLWin.GetSize()
+	p.GlyphRend.SetScreenSize(w, h)
 }

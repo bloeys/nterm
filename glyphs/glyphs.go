@@ -1,7 +1,6 @@
 package glyphs
 
 import (
-	"math/rand"
 	"os"
 	"unicode"
 
@@ -24,6 +23,9 @@ type GlyphRend struct {
 
 	GlyphCount int32
 	GlyphVBO   []float32
+
+	ScreenWidth  int32
+	ScreenHeight int32
 }
 
 //getGlyphRanges returns a list of ranges, each range is: [i][0]<=range<[i][1]
@@ -74,10 +76,10 @@ func getGlyphsFromRanges(ranges [][2]rune) []rune {
 	return out
 }
 
-func (gr *GlyphRend) DrawTextOpenGL(text string, startPos *gglm.Vec3, winWidth, winHeight int32) {
+func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
 
 	//The projection matrix fits the screen size. This is needed so we can size and position characters correctly.
-	projMtx := gglm.Ortho(0, float32(winWidth), float32(winHeight), 0, 0.1, 10)
+	projMtx := gglm.Ortho(0, float32(gr.ScreenWidth), float32(gr.ScreenHeight), 0, 0.1, 10)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 	projViewMtx := projMtx.Clone().Mul(viewMtx)
 
@@ -89,19 +91,15 @@ func (gr *GlyphRend) DrawTextOpenGL(text string, startPos *gglm.Vec3, winWidth, 
 	rs := []rune(text)
 	const floatsPerGlyph = 18
 
-	rCol := rand.Float32()
-	gCol := rand.Float32()
-	bCol := rand.Float32()
-
-	pos := startPos.Clone()
+	pos := screenPos.Clone()
 	instancedData := make([]float32, 0, len(rs)*floatsPerGlyph) //This a larger approximation than needed because we don't count spaces etc
 	for i := 0; i < len(rs); i++ {
 
 		r := rs[i]
 		g := gr.Atlas.Glyphs[r]
 		if r == '\n' {
-			startPos.SetY(startPos.Y() - float32(gr.Atlas.LineHeight))
-			pos = startPos.Clone()
+			screenPos.SetY(screenPos.Y() - float32(gr.Atlas.LineHeight))
+			pos = screenPos.Clone()
 			continue
 		}
 		gr.GlyphCount++
@@ -125,7 +123,7 @@ func (gr *GlyphRend) DrawTextOpenGL(text string, startPos *gglm.Vec3, winWidth, 
 			g.U, g.V + g.SizeV,
 			g.U + g.SizeU, g.V + g.SizeV,
 
-			rCol, gCol, bCol, 1, //Color
+			color.R(), color.G(), color.B(), color.A(), //Color
 			drawPos.X(), drawPos.Y(), drawPos.Z(), //Model pos
 			scale.X(), scale.Y(), scale.Z(), //Model scale
 		}...)
@@ -165,7 +163,12 @@ func (gr *GlyphRend) SetFontFromFile(fontFile string, fontOptions *truetype.Opti
 	return nil
 }
 
-func NewGlyphRend(fontFile string, fontOptions *truetype.Options) (*GlyphRend, error) {
+func (gr *GlyphRend) SetScreenSize(screenWidth, screenHeight int32) {
+	gr.ScreenWidth = screenWidth
+	gr.ScreenHeight = screenHeight
+}
+
+func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, screenHeight int32) (*GlyphRend, error) {
 
 	atlas, err := NewFontAtlasFromFile(fontFile, fontOptions)
 	if err != nil {
@@ -293,5 +296,8 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options) (*GlyphRend, e
 
 		GlyphCount: 0,
 		GlyphVBO:   make([]float32, 0),
+
+		ScreenWidth:  screenWidth,
+		ScreenHeight: screenHeight,
 	}, nil
 }
