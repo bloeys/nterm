@@ -1,8 +1,6 @@
 package main
 
 import (
-	"time"
-
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/engine"
 	"github.com/bloeys/nmage/input"
@@ -22,6 +20,7 @@ type program struct {
 	imguiInfo nmageimgui.ImguiInfo
 
 	FontSize  uint32
+	Dpi       float64
 	GlyphRend *glyphs.GlyphRend
 }
 
@@ -71,10 +70,14 @@ func main() {
 
 func (p *program) Init() {
 
-	w, h := p.win.SDLWin.GetSize()
+	dpi, _, _, err := sdl.GetDisplayDPI(0)
+	if err != nil {
+		panic("Failed to get display DPI. Err: " + err.Error())
+	}
+	println("DPI:", dpi)
 
-	var err error
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: 72}, w, h)
+	w, h := p.win.SDLWin.GetSize()
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
@@ -84,17 +87,17 @@ func (p *program) Start() {
 
 }
 
-var frameStartTime time.Time
-var frameTime time.Duration = 16 * time.Millisecond
-
 func (p *program) FrameStart() {
-	frameStartTime = time.Now()
 }
 
 func (p *program) Update() {
 
 	if input.IsQuitClicked() || input.KeyClicked(sdl.K_ESCAPE) {
 		p.shouldRun = false
+	}
+
+	if input.KeyClicked(sdl.K_SPACE) {
+		p.handleWindowResize()
 	}
 
 	fontSizeChanged := false
@@ -107,7 +110,7 @@ func (p *program) Update() {
 	}
 
 	if fontSizeChanged {
-		p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: 72})
+		p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi})
 	}
 }
 
@@ -120,7 +123,6 @@ func (p *program) Render() {
 }
 
 func (p *program) FrameEnd() {
-	frameTime = time.Since(frameStartTime)
 }
 
 func (g *program) GetWindow() *engine.Window {
@@ -140,6 +142,9 @@ func (p *program) Deinit() {
 }
 
 func (p *program) handleWindowResize() {
+
+	println("Old size:", p.GlyphRend.ScreenWidth, ",", p.GlyphRend.ScreenHeight)
 	w, h := p.win.SDLWin.GetSize()
 	p.GlyphRend.SetScreenSize(w, h)
+	println("New size:", w, ",", h, "\n")
 }

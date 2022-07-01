@@ -1,12 +1,12 @@
 #version 410
 
-uniform sampler2D diffTex;
-
 in vec4 vertColor;
 in vec2 vertUV0;
 in vec3 fragPos;
 
 out vec4 fragColor;
+
+uniform sampler2D diffTex;
 
 void main()
 {

@@ -6,7 +6,6 @@ layout(location=5) in vec4 vertColorIn;
 layout(location=6) in vec3 modelPos;
 layout(location=7) in vec3 modelScale;
 
-
 out vec2 vertUV0;
 out vec4 vertColor;
 out vec3 fragPos;
