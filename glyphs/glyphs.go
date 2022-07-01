@@ -76,10 +76,17 @@ func getGlyphsFromRanges(ranges [][2]rune) []rune {
 	return out
 }
 
+//DrawTextOpenGL prepares text that will be drawn on the next GlyphRend.Draw call.
+//screenPos is in the range [0,1], where (0,0) is the bottom left.
+//Color is RGBA in the range [0,1].
 func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
 
+	screenWidthF32 := float32(gr.ScreenWidth)
+	screenHeightF32 := float32(gr.ScreenHeight)
+	screenPos.Set(screenPos.X()*screenWidthF32, screenPos.Y()*screenHeightF32, screenPos.Z())
+
 	//The projection matrix fits the screen size. This is needed so we can size and position characters correctly.
-	projMtx := gglm.Ortho(0, float32(gr.ScreenWidth), float32(gr.ScreenHeight), 0, 0.1, 10)
+	projMtx := gglm.Ortho(0, screenWidthF32, screenHeightF32, 0, 0.1, 10)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 	projViewMtx := projMtx.Clone().Mul(viewMtx)
 
@@ -135,6 +142,10 @@ func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gg
 }
 
 func (gr *GlyphRend) Draw() {
+
+	if gr.GlyphCount == 0 {
+		return
+	}
 
 	gr.InstancedBuf.SetData(gr.GlyphVBO)
 	gr.InstancedBuf.Bind()

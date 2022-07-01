@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/bloeys/gglm/gglm"
@@ -114,33 +113,10 @@ func (p *program) Update() {
 
 func (p *program) Render() {
 
-	w, h := p.win.SDLWin.GetSize()
+	defer p.GlyphRend.Draw()
+
 	textColor := gglm.NewVec4(1, 1, 1, 1)
-
-	//Draw FPS
-	var fps float32
-	if frameTime.Milliseconds() > 0 {
-		fps = 1 / float32(frameTime.Milliseconds()) * 1000
-	}
-	startFromTop := float32(h) - float32(p.GlyphRend.Atlas.LineHeight)
-	p.GlyphRend.DrawTextOpenGL(fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), textColor)
-
-	//Draw point and texture sizes
-	startFromTop -= float32(p.GlyphRend.Atlas.LineHeight)
-	p.GlyphRend.DrawTextOpenGL(fmt.Sprintf("Point size=%d", p.FontSize), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), textColor)
-
-	startFromTop -= float32(p.GlyphRend.Atlas.LineHeight)
-	p.GlyphRend.DrawTextOpenGL(fmt.Sprintf("Texture size=%d*%d", p.GlyphRend.Atlas.Img.Rect.Max.X, p.GlyphRend.Atlas.Img.Rect.Max.Y), gglm.NewVec3(float32(w)*0.7, startFromTop, 0), textColor)
-
-	//Draw all other
-	count := 1000
-	startFromBot := float32(p.GlyphRend.Atlas.LineHeight)
-	for i := 0; i < count; i++ {
-		p.GlyphRend.DrawTextOpenGL("Hello friend, how are you?\n", gglm.NewVec3(0, startFromBot, 0), textColor)
-		startFromBot += float32(p.GlyphRend.Atlas.LineHeight) * 2
-	}
-
-	p.GlyphRend.Draw()
+	p.GlyphRend.DrawTextOpenGL("Hello there, friend.", gglm.NewVec3(0, 0.9, 0), textColor)
 }
 
 func (p *program) FrameEnd() {
