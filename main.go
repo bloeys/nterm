@@ -117,8 +117,8 @@ func genTextureAtlasFromFace(f *truetype.Font, face font.Face, pointSize uint) *
 	atlasSizeY := 512
 
 	_, charWidthFixed, _ := face.GlyphBounds(glyphs[0])
-	charWidth := charWidthFixed.Round()
-	lineHeight := face.Metrics().Height.Round()
+	charWidth := charWidthFixed.Floor()
+	lineHeight := face.Metrics().Height.Floor()
 
 	maxLinesInAtlas := atlasSizeY/lineHeight - 1
 	charsPerLine := atlasSizeX / charWidth
@@ -161,20 +161,20 @@ func genTextureAtlasFromFace(f *truetype.Font, face font.Face, pointSize uint) *
 		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
 
 		descent := gBounds.Max.Y
-		advanceRounded := gAdvanceFixed.Round()
+		advanceRounded := gAdvanceFixed.Floor()
 		ascent := -gBounds.Min.Y
 
-		heightRounded := (ascent + descent).Round()
+		heightRounded := (ascent + descent).Floor()
 
 		atlas.Glyphs[g] = FontTexAtlasGlyph{
-			U: float32(drawer.Dot.X.Round()) / float32(atlasSizeX),
-			V: (float32(atlasSizeY-(drawer.Dot.Y+descent).Round()) / float32(atlasSizeY)),
+			U: float32(drawer.Dot.X.Floor()) / float32(atlasSizeX),
+			V: (float32(atlasSizeY-(drawer.Dot.Y+descent).Floor()) / float32(atlasSizeY)),
 
 			SizeU: float32(advanceRounded) / float32(atlasSizeX),
 			SizeV: (float32(heightRounded) / float32(atlasSizeY)),
 
-			Ascent:  float32(ascent.Round()),
-			Descent: float32(descent.Round()),
+			Ascent:  float32(ascent.Floor()),
+			Descent: float32(descent.Floor()),
 			Advance: float32(advanceRounded),
 		}
 		drawer.DrawString(string(g))
@@ -279,7 +279,7 @@ func (p *program) Render() {
 	p.drawTextOpenGL(atlas, fmt.Sprintf("FPS=%f", fps), gglm.NewVec3(0, startFromTop, 0))
 
 	//From bottom
-	count := 100
+	count := 5
 	drawnChars := len("Hello friend.\nHow are you?") * count
 	println("Drawn chars:", drawnChars)
 
@@ -435,6 +435,8 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *ggl
 
 	//Draw
 	pos := startPos.Clone()
+	tr := gglm.NewTrMatId()
+
 	rs := []rune(text)
 	for i := 0; i < len(rs); i++ {
 
@@ -475,9 +477,21 @@ func (p *program) drawTextOpenGL(atlas *FontTexAtlas, text string, startPos *ggl
 		//
 		//Horizontally the character should be drawn from the left edge not the center, so we just move it forward by advance/2
 		drawPos := *pos
-		drawPos.Add(gglm.NewVec3(g.Advance*0.5, height*0.5-g.Descent, 0))
+		drawPos.SetX(drawPos.X() + g.Advance*0.5)
+		drawPos.SetY(drawPos.Y() + height*0.5 - g.Descent)
 
-		p.rend.Draw(glyphMesh, gglm.NewTrMatId().Translate(&drawPos).Scale(scale), glyphMat)
+		//Set position and scale then update gpu
+		tr.Set(0, 3, drawPos.X())
+		tr.Set(1, 3, drawPos.Y())
+		tr.Set(2, 3, drawPos.Z())
+
+		tr.Set(0, 0, scale.X())
+		tr.Set(1, 1, scale.Y())
+		tr.Set(2, 2, scale.Z())
+		glyphMat.SetUnifMat4("modelMat", &tr.Mat4)
+
+		gl.DrawElements(gl.TRIANGLES, glyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0))
+		// p.rend.Draw(glyphMesh, gglm.NewTrMatId().Translate(&drawPos).Scale(scale), glyphMat)
 		pos.SetX(pos.X() + g.Advance)
 	}
 }
