@@ -11,5 +11,12 @@ uniform sampler2D diffTex;
 void main()
 {
     vec4 texColor = texture(diffTex, vertUV0);
-    fragColor = vec4(vertColor.rgb, texColor.r*texColor.a);
+    // if (texColor.r == 0)
+    // {
+    //     fragColor = vec4(0,1,0,0.25);
+    // }
+    // else
+    {
+        fragColor = vec4(vertColor.rgb, texColor.r);
+    }
 } 

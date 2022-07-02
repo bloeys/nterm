@@ -2,8 +2,8 @@ package glyphs
 
 import (
 	"errors"
+	"math"
 	"os"
-	"unicode"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/assets"
@@ -29,67 +29,24 @@ type GlyphRend struct {
 	ScreenHeight int32
 }
 
-//getGlyphRanges returns a list of ranges, each range is: [i][0]<=range<[i][1]
-func getGlyphRanges(f *truetype.Font) (ret [][2]rune) {
-	rr := [2]rune{-1, -1}
-	for r := rune(0); r <= unicode.MaxRune; r++ {
-		if privateUseArea(r) {
-			continue
-		}
-		if f.Index(r) == 0 {
-			continue
-		}
-		if rr[1] == r {
-			rr[1] = r + 1
-			continue
-		}
-		if rr[0] != -1 {
-			ret = append(ret, rr)
-		}
-		rr = [2]rune{r, r + 1}
-	}
-	if rr[0] != -1 {
-		ret = append(ret, rr)
-	}
-	return ret
-}
-
-func privateUseArea(r rune) bool {
-	return 0xe000 <= r && r <= 0xf8ff ||
-		0xf0000 <= r && r <= 0xffffd ||
-		0x100000 <= r && r <= 0x10fffd
-}
-
-//getGlyphsFromRanges takes ranges of runes and produces an array of all the runes in these ranges
-func getGlyphsFromRanges(ranges [][2]rune) []rune {
-
-	out := make([]rune, 0)
-	for _, rr := range ranges {
-
-		temp := make([]rune, 0, rr[1]-rr[0])
-		for r := rr[0]; r < rr[1]; r++ {
-			temp = append(temp, r)
-		}
-
-		out = append(out, temp...)
-	}
-
-	return out
-}
-
-//DrawTextOpenGL prepares text that will be drawn on the next GlyphRend.Draw call.
+//DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
 //screenPos is in the range [0,1], where (0,0) is the bottom left.
 //Color is RGBA in the range [0,1].
-func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
+func (gr *GlyphRend) DrawTextOpenGL01(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
+	screenPos.Set(screenPos.X()*float32(gr.ScreenWidth), screenPos.Y()*float32(gr.ScreenHeight), screenPos.Z())
+	gr.DrawTextOpenGLAbs(text, screenPos, color)
+}
 
-	screenWidthF32 := float32(gr.ScreenWidth)
-	screenHeightF32 := float32(gr.ScreenHeight)
-	screenPos.Set(screenPos.X()*screenWidthF32, screenPos.Y()*screenHeightF32, screenPos.Z())
+//DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
+//screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]).
+//Color is RGBA in the range [0,1].
+func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
 
 	//Prepass to pre-allocate the buffer
 	rs := []rune(text)
 	const floatsPerGlyph = 18
 
+	// startPos := screenPos.Clone()
 	pos := screenPos.Clone()
 	instancedData := make([]float32, 0, len(rs)*floatsPerGlyph) //This a larger approximation than needed because we don't count spaces etc
 	for i := 0; i < len(rs); i++ {
@@ -100,11 +57,15 @@ func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gg
 			screenPos.SetY(screenPos.Y() - float32(gr.Atlas.LineHeight))
 			pos = screenPos.Clone()
 			continue
+		} else if r == ' ' {
+			pos.SetX(pos.X() + g.Advance)
+			continue
 		}
 		gr.GlyphCount++
 
-		height := float32(g.Ascent + g.Descent)
-		scale := gglm.NewVec3(g.Advance, height, 1)
+		glyphHeight := float32(g.Ascent + g.Descent)
+		scale := gglm.NewVec3(g.Width, glyphHeight, 1)
+		// scale := gglm.NewVec3(g.Advance, glyphHeight, 1)
 
 		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 		//Quads are drawn from the center and so that's our baseline. But chars shouldn't be centered, they should follow ascent/decent/advance.
@@ -113,8 +74,8 @@ func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gg
 		//
 		//Horizontally the character should be drawn from the left edge not the center, so we just move it forward by advance/2
 		drawPos := *pos
-		drawPos.SetX(drawPos.X() + g.Advance*0.5)
-		drawPos.SetY(drawPos.Y() + height*0.5 - g.Descent)
+		drawPos.SetX(drawPos.X() + g.BearingX)
+		drawPos.SetY(drawPos.Y() - g.Descent)
 
 		instancedData = append(instancedData, []float32{
 			g.U, g.V,
@@ -123,12 +84,31 @@ func (gr *GlyphRend) DrawTextOpenGL(text string, screenPos *gglm.Vec3, color *gg
 			g.U + g.SizeU, g.V + g.SizeV,
 
 			color.R(), color.G(), color.B(), color.A(), //Color
-			drawPos.X(), drawPos.Y(), drawPos.Z(), //Model pos
+			roundF32(drawPos.X()), roundF32(drawPos.Y()), drawPos.Z(), //Model pos
 			scale.X(), scale.Y(), scale.Z(), //Model scale
 		}...)
 
 		pos.SetX(pos.X() + g.Advance)
 	}
+
+	//Draw baselines
+	// g := gr.Atlas.Glyphs['-']
+	// lineData := []float32{
+	// 	g.U, g.V,
+	// 	g.U + g.SizeU, g.V,
+	// 	g.U, g.V + g.SizeV,
+	// 	g.U + g.SizeU, g.V + g.SizeV,
+
+	// 	1, 0, 0, 1, //Color
+	// 	0, startPos.Y(), 1, //Model pos
+	// 	float32(gr.ScreenWidth), 5, 1, //Model scale
+	// }
+
+	// instancedData = append(instancedData, lineData...)
+	// lineData[13] -= float32(gr.Atlas.LineHeight)
+	// instancedData = append(instancedData, lineData...)
+	// gr.GlyphCount++
+	// gr.GlyphCount++
 
 	gr.GlyphVBO = append(gr.GlyphVBO, instancedData...)
 }
@@ -149,10 +129,19 @@ func (gr *GlyphRend) Draw() {
 	gr.GlyphVBO = []float32{}
 }
 
-func (gr *GlyphRend) SetFace(fontOptions *truetype.Options) {
+//SetFace updates the underlying font atlas used by the glyph renderer.
+//The current atlas is unchanged if there is an error
+func (gr *GlyphRend) SetFace(fontOptions *truetype.Options) error {
+
 	face := truetype.NewFace(gr.Atlas.Font, fontOptions)
-	gr.Atlas = NewFontAtlasFromFont(gr.Atlas.Font, face, uint(fontOptions.Size))
+	newAtlas, err := NewFontAtlasFromFont(gr.Atlas.Font, face, uint(fontOptions.Size))
+	if err != nil {
+		return err
+	}
+
+	gr.Atlas = newAtlas
 	gr.updateFontAtlasTexture("temp-atlas")
+	return nil
 }
 
 func (gr *GlyphRend) SetFontFromFile(fontFile string, fontOptions *truetype.Options) error {
@@ -210,9 +199,9 @@ func (gr *GlyphRend) SetScreenSize(screenWidth, screenHeight int32) {
 	gr.ScreenHeight = screenHeight
 
 	//The projection matrix fits the screen size. This is needed so we can size and position characters correctly.
-	projMtx := gglm.Ortho(0, float32(screenWidth), float32(screenHeight), 0, 0.1, 10)
-	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
-	projViewMtx := projMtx.Clone().Mul(viewMtx)
+	projMtx := gglm.Ortho(0, float32(screenWidth), float32(screenHeight), 0, 0.1, 20)
+	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
+	projViewMtx := projMtx.Mul(viewMtx)
 
 	gr.GlyphMat.DiffuseTex = gr.AtlasTex.TexID
 	gr.GlyphMat.SetUnifMat4("projViewMat", &projViewMtx.Mat4)
@@ -246,11 +235,12 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 		),
 	}
 
+	//The quad must be anchored at the bottom-left, not it's center (i.e. bottom-left vertex must be at 0,0)
 	gr.GlyphMesh.Buf.SetData([]float32{
-		-0.5, -0.5, 0,
-		0.5, -0.5, 0,
-		-0.5, 0.5, 0,
-		0.5, 0.5, 0,
+		0, 0, 0,
+		1, 0, 0,
+		0, 1, 0,
+		1, 1, 0,
 	})
 
 	gr.GlyphMesh.Buf.SetIndexBufData([]uint32{
@@ -329,5 +319,10 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.InstancedBuf.UnBind()
 
 	gr.SetScreenSize(screenWidth, screenHeight)
+	// fmt.Printf("lineHeight=%d, glyphInfo=%+v\n", gr.Atlas.LineHeight, gr.Atlas.Glyphs['A'])
 	return gr, nil
+}
+
+func roundF32(x float32) float32 {
+	return float32(math.Round(float64(x)))
 }
