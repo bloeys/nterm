@@ -66,7 +66,7 @@ func main() {
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
 
-		FontSize: 14,
+		FontSize: 20,
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, func(e sdl.Event) {
@@ -91,7 +91,7 @@ func (p *program) Init() {
 	if err != nil {
 		panic("Failed to get display DPI. Err: " + err.Error())
 	}
-	fmt.Println("DPI:", dpi)
+	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
 
 	w, h := p.win.SDLWin.GetSize()
 	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY}, w, h)

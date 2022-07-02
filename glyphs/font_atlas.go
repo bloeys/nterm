@@ -70,8 +70,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	atlasSizeX := 512
 	atlasSizeY := 512
 
-	const charPaddingX = 4
-	const charPaddingY = 4
+	const charPaddingX = 2
+	const charPaddingY = 2
 	charAdvFixed, _ := face.GlyphAdvance('L')
 	charAdv := charAdvFixed.Ceil() + charPaddingX
 
@@ -148,6 +148,9 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			BearingX: float32(bearingX.Ceil()),
 			Width:    glyphWidth,
 		}
+
+		// z := atlas.Glyphs[g]
+		// fmt.Printf("c=%s; u=%f, v=%f, sizeU=%f, sizeV=%f; x=%d, y=%d, w=%f, h=%f\n", string(g), z.U, z.V, z.SizeU, z.SizeV, int(z.U*atlasSizeXF32), int(z.V*atlasSizeYF32), z.SizeU*atlasSizeXF32, z.SizeV*atlasSizeYF32)
 
 		drawer.DrawString(string(g))
 		drawer.Dot.X += charPaddingXFixed
