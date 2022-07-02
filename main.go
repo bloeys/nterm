@@ -27,6 +27,11 @@ type program struct {
 	FontSize  uint32
 	Dpi       float64
 	GlyphRend *glyphs.GlyphRend
+
+	gridMesh *meshes.Mesh
+	gridMat  *materials.Material
+
+	shouldDrawGrid bool
 }
 
 //nMage TODO:
@@ -61,7 +66,7 @@ func main() {
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
 
-		FontSize: 80,
+		FontSize: 14,
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, func(e sdl.Event) {
@@ -97,19 +102,16 @@ func (p *program) Init() {
 	glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
 }
 
-var gridMesh *meshes.Mesh
-var gridMat *materials.Material
-
 func (p *program) Start() {
 
 	var err error
-	gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
+	p.gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	gridMat = materials.NewMaterial("grid", "./res/shaders/grid")
-	gridMat.SetAttribute(gridMesh.Buf)
+	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid")
+	p.gridMat.SetAttribute(p.gridMesh.Buf)
 	p.handleWindowResize()
 }
 
@@ -126,6 +128,7 @@ func (p *program) Update() {
 		p.handleWindowResize()
 	}
 
+	//Font sizing
 	oldFont := p.FontSize
 	fontSizeChanged := false
 	if input.KeyClicked(sdl.K_KP_PLUS) {
@@ -144,10 +147,11 @@ func (p *program) Update() {
 			println("Failed to update font face. Err: " + err.Error())
 		} else {
 			glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
-			println("New font size:", p.FontSize)
+			println("New font size:", p.FontSize, "; New texture size:", p.GlyphRend.Atlas.Img.Rect.Max.X, "\n")
 		}
 	}
 
+	//Move text
 	var speed float32 = 1
 	if input.KeyDown(sdl.K_RIGHT) {
 		xOff += speed
@@ -159,6 +163,11 @@ func (p *program) Update() {
 		yOff += speed
 	} else if input.KeyDown(sdl.K_DOWN) {
 		yOff -= speed
+	}
+
+	//Grid
+	if input.KeyClicked(sdl.K_SPACE) {
+		p.shouldDrawGrid = !p.shouldDrawGrid
 	}
 }
 
@@ -175,7 +184,9 @@ func (p *program) Render() {
 	// p.GlyphRend.DrawTextOpenGLAbs("Hello there, friend.\nABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(0, 0, 0), textColor)
 	p.GlyphRend.DrawTextOpenGLAbs(" Hello there, friend|.\n ABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*2+yOff, 0), textColor)
 
-	// p.drawGrid()
+	if p.shouldDrawGrid {
+		p.drawGrid()
+	}
 }
 
 func (p *program) drawGrid() {
@@ -186,12 +197,12 @@ func (p *program) drawGrid() {
 	//columns
 	adv := p.GlyphRend.Atlas.Glyphs['A'].Advance
 	for i := int32(0); i < p.GlyphRend.ScreenWidth; i += int32(adv) {
-		p.rend.Draw(gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(float32(i)+0.5, sizeY/2, 0)).Scale(gglm.NewVec3(1, sizeY, 1)), gridMat)
+		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(float32(i)+0.5, sizeY/2, 0)).Scale(gglm.NewVec3(1, sizeY, 1)), p.gridMat)
 	}
 
 	//rows
 	for i := int32(0); i < p.GlyphRend.ScreenHeight; i += int32(p.GlyphRend.Atlas.LineHeight) {
-		p.rend.Draw(gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, float32(i), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), gridMat)
+		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, float32(i), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
 	}
 }
 
@@ -220,5 +231,5 @@ func (p *program) handleWindowResize() {
 
 	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 20)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
-	gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
+	p.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
 }

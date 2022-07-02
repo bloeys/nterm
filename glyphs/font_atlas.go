@@ -70,13 +70,15 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	atlasSizeX := 512
 	atlasSizeY := 512
 
-	charWidthFixed, _ := face.GlyphAdvance('L')
-	charWidth := charWidthFixed.Ceil()
+	const charPaddingX = 4
+	const charPaddingY = 4
+	charAdvFixed, _ := face.GlyphAdvance('L')
+	charAdv := charAdvFixed.Ceil() + charPaddingX
 
 	lineHeight := face.Metrics().Height.Ceil()
 
 	maxLinesInAtlas := atlasSizeY/lineHeight - 1
-	charsPerLine := atlasSizeX / charWidth
+	charsPerLine := atlasSizeX / charAdv
 	linesNeeded := int(math.Ceil(float64(len(glyphs)) / float64(charsPerLine)))
 
 	for linesNeeded > maxLinesInAtlas {
@@ -86,7 +88,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		maxLinesInAtlas = atlasSizeY/lineHeight - 1
 
-		charsPerLine = atlasSizeX / charWidth
+		charsPerLine = atlasSizeX / charAdv
 		linesNeeded = int(math.Ceil(float64(len(glyphs)) / float64(charsPerLine)))
 	}
 
@@ -114,6 +116,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	//Put glyphs on atlas
 	atlasSizeXF32 := float32(atlasSizeX)
 	atlasSizeYF32 := float32(atlasSizeY)
+	charPaddingXFixed := fixed.I(charPaddingX)
+	charPaddingYFixed := fixed.I(charPaddingY)
 
 	charsOnLine := 0
 	lineHeightFixed := fixed.I(lineHeight)
@@ -127,7 +131,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		descent := absFixedI26_6(gBounds.Max.Y)
 		bearingX := absFixedI26_6(gBounds.Min.X)
 
-		glyphWidth := float32((absFixedI26_6(gBounds.Max.X - gBounds.Min.X)).Ceil())
+		glyphWidth := float32((absFixedI26_6(gBounds.Max.X) - absFixedI26_6(gBounds.Min.X)).Ceil())
 		heightRounded := (ascent + descent).Ceil()
 
 		atlas.Glyphs[g] = FontAtlasGlyph{
@@ -144,14 +148,16 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			BearingX: float32(bearingX.Ceil()),
 			Width:    glyphWidth,
 		}
+
 		drawer.DrawString(string(g))
+		drawer.Dot.X += charPaddingXFixed
 
 		charsOnLine++
 		if charsOnLine == charsPerLine {
 
 			charsOnLine = 0
 			drawer.Dot.X = 0
-			drawer.Dot.Y += lineHeightFixed
+			drawer.Dot.Y += lineHeightFixed + charPaddingYFixed
 		}
 	}
 
