@@ -2,6 +2,7 @@ package glyphs
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"image/draw"
 	"image/png"
@@ -36,7 +37,9 @@ type FontAtlasGlyph struct {
 }
 
 //NewFontAtlasFromFile reads a TTF or TTC file and produces a font texture atlas containing
-//all its characters using the specified options.
+//all its characters using the specified options. The atlas uses equally sized tiles
+//such that all characters use an equal horizontal/vertical on the atlas.
+//If the character is smaller than the tile then the rest of the tile is empty.
 //
 //Only monospaced fonts are supported
 func NewFontAtlasFromFile(fontFile string, fontOptions *truetype.Options) (*FontAtlas, error) {
@@ -56,9 +59,11 @@ func NewFontAtlasFromFile(fontFile string, fontOptions *truetype.Options) (*Font
 }
 
 //NewFontAtlasFromFile uses the passed font to produce a font texture atlas containing
-//all its characters using the specified options.
+//all its characters using the specified options. The atlas uses equally sized tiles
+//such that all characters use an equal horizontal/vertical on the atlas.
+//If the character is smaller than the tile then the rest of the tile is empty.
 //
-//Only monospaced fonts are supported
+//Only monospaced fonts are supported.
 func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*FontAtlas, error) {
 
 	const maxAtlasSize = 8192
@@ -66,30 +71,47 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	glyphs := getGlyphsFromRuneRanges(getGlyphRangesFromFont(f))
 	assert.T(len(glyphs) > 0, "no glyphs")
 
-	//Choose atlas size
-	atlasSizeX := 64
-	atlasSizeY := 64
-
+	//Find advance and line height
 	const charPaddingX = 2
 	const charPaddingY = 2
 	charAdvFixed, _ := face.GlyphAdvance('L')
 	charAdv := charAdvFixed.Ceil() + charPaddingX
 
-	lineHeight := face.Metrics().Height.Ceil()
+	//Find largest vertical character.
+	//We don't use face.Metrics().Height because its not reliable
+	lineHeightFixed := fixed.Int26_6(0)
+	for _, g := range glyphs {
 
-	maxLinesInAtlas := atlasSizeY/lineHeight - 1
+		gBounds, _, _ := face.GlyphBounds(g)
+		ascent := absFixedI26_6(gBounds.Min.Y)
+		descent := absFixedI26_6(gBounds.Max.Y)
+
+		charHeight := ascent + descent
+		if charHeight > lineHeightFixed {
+			lineHeightFixed = charHeight
+		}
+	}
+	lineHeightFixed = fixed.I(lineHeightFixed.Ceil())
+	lineHeight := lineHeightFixed.Ceil()
+	fmt.Println("calculated line height:", lineHeight)
+
+	//Calculate needed atlas size
+	atlasSizeX := 64
+	atlasSizeY := 64
+
+	maxLinesInAtlas := atlasSizeY/lineHeight - 2
 	charsPerLine := atlasSizeX / charAdv
-	linesNeeded := int(math.Ceil(float64(len(glyphs)) / float64(charsPerLine)))
+	linesNeeded := int(math.Ceil(float64(len(glyphs))/float64(charsPerLine))) + 1
 
 	for linesNeeded > maxLinesInAtlas {
 
 		atlasSizeX *= 2
 		atlasSizeY *= 2
 
-		maxLinesInAtlas = atlasSizeY/lineHeight - 1
+		maxLinesInAtlas = atlasSizeY/lineHeight - 2
 
 		charsPerLine = atlasSizeX / charAdv
-		linesNeeded = int(math.Ceil(float64(len(glyphs)) / float64(charsPerLine)))
+		linesNeeded = int(math.Ceil(float64(len(glyphs))/float64(charsPerLine))) + 1
 	}
 
 	if atlasSizeX > maxAtlasSize {
@@ -106,7 +128,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	//Clear background to black
 	draw.Draw(atlas.Img, atlas.Img.Bounds(), image.Black, image.Point{}, draw.Src)
-
 	drawer := &font.Drawer{
 		Dst:  atlas.Img,
 		Src:  image.White,
@@ -120,7 +141,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	charPaddingYFixed := fixed.I(charPaddingY)
 
 	charsOnLine := 0
-	lineHeightFixed := fixed.I(lineHeight)
 	drawer.Dot = fixed.P(0, lineHeight)
 	for _, g := range glyphs {
 
@@ -132,14 +152,14 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		bearingX := absFixedI26_6(gBounds.Min.X)
 
 		glyphWidth := float32((absFixedI26_6(gBounds.Max.X) - absFixedI26_6(gBounds.Min.X)).Ceil())
-		heightRounded := (ascent + descent).Ceil()
 
+		//TODO: Since sizeU/sizeV are now constant we should upload as a uniform
 		atlas.Glyphs[g] = FontAtlasGlyph{
-			U: float32((drawer.Dot.X + bearingX).Floor()) / atlasSizeXF32,
-			V: (atlasSizeYF32 - float32((drawer.Dot.Y + descent).Ceil())) / atlasSizeYF32,
+			U: float32((drawer.Dot.X).Floor()) / atlasSizeXF32,
+			V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())) / atlasSizeYF32,
 
-			SizeU: glyphWidth / atlasSizeXF32,
-			SizeV: float32(heightRounded) / atlasSizeYF32,
+			SizeU: advanceCeilF32 / atlasSizeXF32,
+			SizeV: float32(lineHeight) / atlasSizeYF32,
 
 			Ascent:  float32(ascent.Ceil()),
 			Descent: float32(descent.Ceil()),
@@ -149,11 +169,19 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			Width:    glyphWidth,
 		}
 
-		// z := atlas.Glyphs[g]
-		// fmt.Printf("c=%s; u=%f, v=%f, sizeU=%f, sizeV=%f; x=%d, y=%d, w=%f, h=%f\n", string(g), z.U, z.V, z.SizeU, z.SizeV, int(z.U*atlasSizeXF32), int(z.V*atlasSizeYF32), z.SizeU*atlasSizeXF32, z.SizeV*atlasSizeYF32)
+		//Get glyph to draw but undo any applied descent so that the glyph is drawn sitting on the line exactly.
+		//Bearing will be applied correctly but descent will be the responsibility of the positioning code
+		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
+		if imgRect.Max.Y > drawer.Dot.Y.Ceil() {
+			diff := imgRect.Max.Y - drawer.Dot.Y.Ceil()
+			imgRect.Min.Y -= diff
+			imgRect.Max.Y -= diff
+		}
 
-		drawer.DrawString(string(g))
-		drawer.Dot.X += charPaddingXFixed
+		//Draw glyph and advance dot
+		// fmt.Println("G:", string(g), "Y:", drawer.Dot.Y.Ceil(), "; rect:", imgRect.String())
+		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
+		drawer.Dot.X += gAdvanceFixed + charPaddingXFixed
 
 		charsOnLine++
 		if charsOnLine == charsPerLine {

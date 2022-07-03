@@ -62,9 +62,9 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		}
 		gr.GlyphCount++
 
-		glyphHeight := float32(g.Ascent + g.Descent)
-		scale := gglm.NewVec3(g.Width, glyphHeight, 1)
-		// scale := gglm.NewVec3(g.Advance, glyphHeight, 1)
+		// glyphHeight := float32(g.Ascent + g.Descent)
+		scale := gglm.NewVec3(g.Advance, float32(gr.Atlas.LineHeight), 1)
+		// scale := gglm.NewVec3(g.Width, glyphHeight, 1)
 
 		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 		//Quads are drawn from the center and so that's our baseline. But chars shouldn't be centered, they should follow ascent/decent/advance.
@@ -73,8 +73,10 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		//
 		//Horizontally the character should be drawn from the left edge not the center, so we just move it forward by advance/2
 		drawPos := *pos
-		drawPos.SetX(drawPos.X() + g.BearingX)
+		drawPos.SetX(drawPos.X())
 		drawPos.SetY(drawPos.Y() - g.Descent)
+		// drawPos.SetX(drawPos.X() + g.BearingX)
+		// drawPos.SetY(drawPos.Y() - g.Descent)
 
 		instancedData = append(instancedData, []float32{
 			g.U, g.V,

@@ -168,7 +168,7 @@ func (p *program) Render() {
 	// p.GlyphRend.DrawTextOpenGL("y", gglm.NewVec3(0+xOff, 0+yOff, 0), textColor)
 	// p.GlyphRend.DrawTextOpenGL("A\np-+_; This is", gglm.NewVec3(0.3+xOff, 0.5+yOff, 0), textColor)
 	// p.GlyphRend.DrawTextOpenGLAbs("Hello there, friend.\nABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(0, 0, 0), textColor)
-	p.GlyphRend.DrawTextOpenGLAbs(" Hello there, friend|.\n ABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*2+yOff, 0), textColor)
+	p.GlyphRend.DrawTextOpenGLAbs(" ijojo\n\n Hello there, friend|. pq?\n ABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
 
 	if p.shouldDrawGrid {
 		p.drawGrid()
