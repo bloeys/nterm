@@ -14,7 +14,7 @@ import (
 )
 
 const floatsPerGlyph = 11
-const maxGlyphsPerBatch = 16384
+const MaxGlyphsPerBatch = 16384
 
 type GlyphRend struct {
 	Atlas    *FontAtlas
@@ -24,7 +24,7 @@ type GlyphRend struct {
 	InstancedBuf buffers.Buffer
 	GlyphMat     *materials.Material
 
-	GlyphCount int32
+	GlyphCount uint32
 	//NOTE: Because of the sad realities (bugs?) of CGO, passing an array in a struct
 	//to C explodes (Go pointer to Go pointer error) even though passing the same array
 	//allocated inside the function is fine (Go potentially can't detect what's happening properly).
@@ -35,6 +35,8 @@ type GlyphRend struct {
 
 	ScreenWidth  int32
 	ScreenHeight int32
+
+	SpacesPerTab uint
 }
 
 //DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
@@ -57,20 +59,25 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	pos := screenPos.Clone()
 	advanceF32 := float32(gr.Atlas.Advance)
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
+	scale := gglm.NewVec2(advanceF32, lineHeightF32)
+
+	buffIndex := gr.GlyphCount * floatsPerGlyph
 	for i := 0; i < len(rs); i++ {
 
 		r := rs[i]
-		g := gr.Atlas.Glyphs[r]
 		if r == '\n' {
 			screenPos.SetY(screenPos.Y() - lineHeightF32)
 			pos = screenPos.Clone()
 			continue
 		} else if r == ' ' {
-			pos.SetX(pos.X() + advanceF32)
+			pos.AddX(advanceF32)
+			continue
+		} else if r == '\t' {
+			pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
 			continue
 		}
 
-		scale := gglm.NewVec2(advanceF32, lineHeightF32)
+		g := gr.Atlas.Glyphs[r]
 
 		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 		//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
@@ -80,33 +87,34 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		drawPos.SetY(drawPos.Y() - g.Descent)
 
 		//Add the glyph information to the vbo
-		startIndex := gr.GlyphCount * floatsPerGlyph
-
 		//UV
-		gr.GlyphVBO[startIndex+0] = g.U
-		gr.GlyphVBO[startIndex+1] = g.V
+		gr.GlyphVBO[buffIndex+0] = g.U
+		gr.GlyphVBO[buffIndex+1] = g.V
 
 		//Color
-		gr.GlyphVBO[startIndex+2] = color.R()
-		gr.GlyphVBO[startIndex+3] = color.G()
-		gr.GlyphVBO[startIndex+4] = color.B()
-		gr.GlyphVBO[startIndex+5] = color.A()
+		gr.GlyphVBO[buffIndex+2] = color.R()
+		gr.GlyphVBO[buffIndex+3] = color.G()
+		gr.GlyphVBO[buffIndex+4] = color.B()
+		gr.GlyphVBO[buffIndex+5] = color.A()
 
 		//Model Pos
-		gr.GlyphVBO[startIndex+6] = roundF32(drawPos.X())
-		gr.GlyphVBO[startIndex+7] = roundF32(drawPos.Y())
-		gr.GlyphVBO[startIndex+8] = drawPos.Z()
+		gr.GlyphVBO[buffIndex+6] = roundF32(drawPos.X())
+		gr.GlyphVBO[buffIndex+7] = roundF32(drawPos.Y())
+		gr.GlyphVBO[buffIndex+8] = drawPos.Z()
 
 		//Model Scale
-		gr.GlyphVBO[startIndex+9] = scale.X()
-		gr.GlyphVBO[startIndex+10] = scale.Y()
+		gr.GlyphVBO[buffIndex+9] = scale.X()
+		gr.GlyphVBO[buffIndex+10] = scale.Y()
 
 		gr.GlyphCount++
-		pos.SetX(pos.X() + advanceF32)
+		pos.AddX(advanceF32)
 
 		//If we fill the buffer we issue a draw call
-		if gr.GlyphCount == maxGlyphsPerBatch {
+		if gr.GlyphCount == MaxGlyphsPerBatch {
 			gr.Draw()
+			buffIndex = 0
+		} else {
+			buffIndex += floatsPerGlyph
 		}
 	}
 }
@@ -121,7 +129,7 @@ func (gr *GlyphRend) Draw() {
 	gr.InstancedBuf.Bind()
 	gr.GlyphMat.Bind()
 
-	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), gr.GlyphCount)
+	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), int32(gr.GlyphCount))
 	gr.GlyphCount = 0
 }
 
@@ -200,8 +208,9 @@ func (gr *GlyphRend) SetScreenSize(screenWidth, screenHeight int32) {
 func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, screenHeight int32) (*GlyphRend, error) {
 
 	gr := &GlyphRend{
-		GlyphCount: 0,
-		GlyphVBO:   make([]float32, floatsPerGlyph*maxGlyphsPerBatch),
+		GlyphCount:   0,
+		GlyphVBO:     make([]float32, floatsPerGlyph*MaxGlyphsPerBatch),
+		SpacesPerTab: 4,
 	}
 
 	//Create glyph mesh

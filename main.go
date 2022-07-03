@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 
 	"github.com/bloeys/gglm/gglm"
@@ -10,6 +11,7 @@ import (
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
+	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
@@ -164,14 +166,13 @@ var b = rand.Float32()
 
 func (p *program) Render() {
 
-	const colorSpd = 0.005
-	// const charsPerFrame = 100_000
 	defer p.GlyphRend.Draw()
 
 	if p.shouldDrawGrid {
 		p.drawGrid()
 	}
 
+	const colorSpd = 0.005
 	r += colorSpd
 	if r > 1 {
 		r = 0
@@ -188,16 +189,16 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
-	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 
-	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+	// p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
 
-	// strLen := len(str)
-	// for i := 0; i < charsPerFrame/strLen; i++ {
-	// 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
-	// }
-
-	// fmt.Println("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", charsPerFrame/16384)
+	strLen := len(str)
+	const charsPerFrame = 10_000
+	for i := 0; i < charsPerFrame/strLen; i++ {
+		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+	}
+	p.win.SDLWin.SetTitle(fmt.Sprint("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch)))
 }
 
 func (p *program) drawGrid() {
