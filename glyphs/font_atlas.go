@@ -2,7 +2,6 @@ package glyphs
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"image/draw"
 	"image/png"
@@ -94,7 +93,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 	lineHeightFixed = fixed.I(lineHeightFixed.Ceil())
 	lineHeight := lineHeightFixed.Ceil()
-	fmt.Println("calculated line height:", lineHeight)
 
 	//Calculate needed atlas size
 	atlasSizeX := 64
@@ -172,7 +170,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		}
 
 		//Draw glyph and advance dot
-		// fmt.Println("G:", string(g), "Y:", drawer.Dot.Y.Ceil(), "; rect:", imgRect.String())
 		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
 		drawer.Dot.X += gAdvanceFixed + charPaddingXFixed
 

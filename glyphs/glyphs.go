@@ -83,25 +83,6 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		pos.SetX(pos.X() + advanceF32)
 	}
 
-	//Draw baselines
-	// g := gr.Atlas.Glyphs['-']
-	// lineData := []float32{
-	// 	g.U, g.V,
-	// 	g.U + g.SizeU, g.V,
-	// 	g.U, g.V + g.SizeV,
-	// 	g.U + g.SizeU, g.V + g.SizeV,
-
-	// 	1, 0, 0, 1, //Color
-	// 	0, startPos.Y(), 1, //Model pos
-	// 	float32(gr.ScreenWidth), 5, 1, //Model scale
-	// }
-
-	// instancedData = append(instancedData, lineData...)
-	// lineData[13] -= float32(gr.Atlas.LineHeight)
-	// instancedData = append(instancedData, lineData...)
-	// gr.GlyphCount++
-	// gr.GlyphCount++
-
 	gr.GlyphVBO = append(gr.GlyphVBO, instancedData...)
 }
 
@@ -288,7 +269,6 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.GlyphMesh.Buf.SetLayout(buffers.Element{ElementType: buffers.DataTypeVec3})
 
 	gr.SetScreenSize(screenWidth, screenHeight)
-	// fmt.Printf("lineHeight=%d, glyphInfo=%+v\n", gr.Atlas.LineHeight, gr.Atlas.Glyphs['A'])
 	return gr, nil
 }
 

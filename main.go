@@ -14,6 +14,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/golang/freetype/truetype"
 	"github.com/veandco/go-sdl2/sdl"
+	"golang.org/x/image/font"
 )
 
 var _ engine.Game = &program{}
@@ -33,11 +34,9 @@ type program struct {
 	shouldDrawGrid bool
 }
 
-//nTerm TODO:
-// * Signed distance fields?
-
 const subPixelX = 64
 const subPixelY = 64
+const hinting = font.HintingNone
 
 func main() {
 
@@ -87,7 +86,7 @@ func (p *program) Init() {
 	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
 
 	w, h := p.win.SDLWin.GetSize()
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY}, w, h)
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
@@ -127,7 +126,7 @@ func (p *program) Update() {
 
 	if fontSizeChanged {
 
-		err := p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY})
+		err := p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting})
 		if err != nil {
 			p.FontSize = oldFont
 			println("Failed to update font face. Err: " + err.Error())
