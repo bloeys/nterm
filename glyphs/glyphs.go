@@ -173,15 +173,11 @@ func (gr *GlyphRend) updateFontAtlasTexture(fontFile string) error {
 	}
 	defer os.Remove(pngFileName)
 
-	atlasTex, err := assets.LoadPNGTexture(pngFileName)
+	atlasTex, err := assets.LoadTexturePNG(pngFileName, nil)
 	if err != nil {
 		return err
 	}
 	gr.AtlasTex = &atlasTex
-
-	//TODO: We want a function to load without caching. For now we clear manually
-	delete(assets.Textures, atlasTex.TexID)
-	delete(assets.TexturePaths, pngFileName)
 
 	gl.BindTexture(gl.TEXTURE_2D, atlasTex.TexID)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
@@ -229,7 +225,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.GlyphMesh = &meshes.Mesh{
 		Name: "glypQuad",
 
-		//VertPos, UV, Color; Instanced attributes are stored separately
+		//VertPos only. Instanced attributes are stored separately
 		Buf: buffers.NewBuffer(
 			buffers.Element{ElementType: buffers.DataTypeVec3},
 		),
@@ -249,8 +245,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	})
 
 	//Setup material
-	gr.GlyphMat = materials.NewMaterial("glyphMat", "./res/shaders/glyph")
-	gr.GlyphMat.SetAttribute(gr.GlyphMesh.Buf)
+	gr.GlyphMat = materials.NewMaterial("glyphMat", "./res/shaders/glyph.glsl")
 	gr.GlyphMat.DiffuseTex = gr.AtlasTex.TexID
 
 	//Create instanced buf and set its instanced attributes.
@@ -258,6 +253,12 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.InstancedBuf = buffers.Buffer{
 		VAOID: gr.GlyphMesh.Buf.VAOID,
 	}
+
+	gl.GenBuffers(1, &gr.InstancedBuf.BufID)
+	if gr.InstancedBuf.BufID == 0 {
+		return nil, errors.New("failed to create OpenGL VBO buffer")
+	}
+
 	gr.InstancedBuf.SetLayout(
 		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVST0
 		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVST1
@@ -268,11 +269,6 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelPos
 		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelScale
 	)
-
-	gl.GenBuffers(1, &gr.InstancedBuf.BufID)
-	if gr.InstancedBuf.BufID == 0 {
-		return nil, errors.New("failed to create OpenGL VBO buffer")
-	}
 
 	gr.InstancedBuf.Bind()
 	gl.BindBuffer(gl.ARRAY_BUFFER, gr.InstancedBuf.BufID)
@@ -317,6 +313,9 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 	gr.InstancedBuf.UnBind()
+
+	//Reset mesh layout because the instancedBuf setLayout over-wrote vertex attribute 0
+	gr.GlyphMesh.Buf.SetLayout(buffers.Element{ElementType: buffers.DataTypeVec3})
 
 	gr.SetScreenSize(screenWidth, screenHeight)
 	// fmt.Printf("lineHeight=%d, glyphInfo=%+v\n", gr.Atlas.LineHeight, gr.Atlas.Glyphs['A'])

@@ -3,8 +3,8 @@ module github.com/bloeys/nterm
 go 1.18
 
 require (
-	github.com/bloeys/gglm v0.3.1
-	github.com/bloeys/nmage v0.11.12
+	github.com/bloeys/gglm v0.41.10
+	github.com/bloeys/nmage v0.12.12
 	github.com/go-gl/gl v0.0.0-20211025173605-bda47ffaa784
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/veandco/go-sdl2 v0.4.10

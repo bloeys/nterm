@@ -19,7 +19,6 @@ import (
 var _ engine.Game = &program{}
 
 type program struct {
-	shouldRun bool
 	win       *engine.Window
 	rend      *rend3dgl.Rend3DGL
 	imguiInfo nmageimgui.ImguiInfo
@@ -34,13 +33,8 @@ type program struct {
 	shouldDrawGrid bool
 }
 
-//nMage TODO:
-//	* Assert that engine is inited
-//	* Create VAO struct independent from VBO to support multi-VBO use cases (e.g. instancing)
-//	* Move SetAttribute away from material struct
-//	* Fix FPS counter
-//	* Allow texture loading without cache
-//	* Reduce/remove Game interface
+//nTerm TODO:
+// * Signed distance fields?
 
 const subPixelX = 64
 const subPixelY = 64
@@ -61,7 +55,6 @@ func main() {
 	engine.SetVSync(true)
 
 	p := &program{
-		shouldRun: true,
 		win:       win,
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
@@ -82,7 +75,7 @@ func main() {
 	gl.ClearColor(0, 0, 0, 0)
 	p.win.SDLWin.GLSwap()
 
-	engine.Run(p)
+	engine.Run(p, p.win, p.imguiInfo)
 }
 
 func (p *program) Init() {
@@ -100,28 +93,21 @@ func (p *program) Init() {
 	}
 
 	glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
-}
 
-func (p *program) Start() {
-
-	var err error
+	//Load resources
 	p.gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid")
-	p.gridMat.SetAttribute(p.gridMesh.Buf)
+	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
-}
-
-func (p *program) FrameStart() {
 }
 
 func (p *program) Update() {
 
 	if input.IsQuitClicked() || input.KeyClicked(sdl.K_ESCAPE) {
-		p.shouldRun = false
+		engine.Quit()
 	}
 
 	if input.KeyClicked(sdl.K_SPACE) {
@@ -209,19 +195,7 @@ func (p *program) drawGrid() {
 func (p *program) FrameEnd() {
 }
 
-func (g *program) GetWindow() *engine.Window {
-	return g.win
-}
-
-func (g *program) GetImGUI() nmageimgui.ImguiInfo {
-	return g.imguiInfo
-}
-
-func (p *program) ShouldRun() bool {
-	return p.shouldRun
-}
-
-func (p *program) Deinit() {
+func (p *program) DeInit() {
 
 }
 
