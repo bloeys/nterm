@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/engine"
@@ -9,6 +10,7 @@ import (
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
+	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/go-gl/gl/v4.1-core/gl"
@@ -154,20 +156,47 @@ func (p *program) Update() {
 	if input.KeyClicked(sdl.K_SPACE) {
 		p.shouldDrawGrid = !p.shouldDrawGrid
 	}
+
+	fmt.Println("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", charsPerFrame/16384)
 }
+
+const charsPerFrame = 100_000
 
 var xOff float32 = 0
 var yOff float32 = 0
 
+var r = rand.Float32()
+var g = rand.Float32()
+var b = rand.Float32()
+
 func (p *program) Render() {
 
+	const colorSpd = 0.005
 	defer p.GlyphRend.Draw()
 
-	textColor := gglm.NewVec4(1, 1, 1, 1)
-	// p.GlyphRend.DrawTextOpenGL("y", gglm.NewVec3(0+xOff, 0+yOff, 0), textColor)
-	// p.GlyphRend.DrawTextOpenGL("A\np-+_; This is", gglm.NewVec3(0.3+xOff, 0.5+yOff, 0), textColor)
-	// p.GlyphRend.DrawTextOpenGLAbs("Hello there, friend.\nABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(0, 0, 0), textColor)
-	p.GlyphRend.DrawTextOpenGLAbs(" ijojo\n\n Hello there, friend|. pq?\n ABCDEFGHIJKLMNOPQRSTUVWXYZ", gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+	r += colorSpd
+	if r > 1 {
+		r = 0
+	}
+
+	g += colorSpd
+	if g > 1 {
+		g = 0
+	}
+
+	b += colorSpd
+	if b > 1 {
+		b = 0
+	}
+
+	textColor := gglm.NewVec4(r, g, b, 1)
+
+	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	strLen := len(str)
+
+	for i := 0; i < charsPerFrame/strLen; i++ {
+		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+	}
 
 	if p.shouldDrawGrid {
 		p.drawGrid()

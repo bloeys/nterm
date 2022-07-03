@@ -13,6 +13,9 @@ import (
 	"github.com/golang/freetype/truetype"
 )
 
+const floatsPerGlyph = 11
+const maxGlyphsPerBatch = 16384
+
 type GlyphRend struct {
 	Atlas    *FontAtlas
 	AtlasTex *assets.Texture
@@ -22,7 +25,13 @@ type GlyphRend struct {
 	GlyphMat     *materials.Material
 
 	GlyphCount int32
-	GlyphVBO   []float32
+	//NOTE: Because of the sad realities (bugs?) of CGO, passing an array in a struct
+	//to C explodes (Go pointer to Go pointer error) even though passing the same array
+	//allocated inside the function is fine (Go potentially can't detect what's happening properly).
+	//
+	//Luckily slices still work, so for now we will use our slice as an array (no appending)
+	GlyphVBO []float32
+	// GlyphVBO [floatsPerGlyph * maxGlyphsPerBatch]float32
 
 	ScreenWidth  int32
 	ScreenHeight int32
@@ -43,13 +52,11 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 
 	//Prepass to pre-allocate the buffer
 	rs := []rune(text)
-	const floatsPerGlyph = 18
 
 	// startPos := screenPos.Clone()
 	pos := screenPos.Clone()
 	advanceF32 := float32(gr.Atlas.Advance)
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-	instancedData := make([]float32, 0, len(rs)*floatsPerGlyph) //This a larger approximation than needed because we don't count spaces etc
 	for i := 0; i < len(rs); i++ {
 
 		r := rs[i]
@@ -62,7 +69,6 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 			pos.SetX(pos.X() + advanceF32)
 			continue
 		}
-		gr.GlyphCount++
 
 		scale := gglm.NewVec2(advanceF32, lineHeightF32)
 
@@ -73,17 +79,36 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		drawPos.SetX(drawPos.X())
 		drawPos.SetY(drawPos.Y() - g.Descent)
 
-		instancedData = append(instancedData, []float32{
-			g.U, g.V,
-			color.R(), color.G(), color.B(), color.A(), //Color
-			roundF32(drawPos.X()), roundF32(drawPos.Y()), drawPos.Z(), //Model pos
-			scale.X(), scale.Y(), //Model scale
-		}...)
+		//Add the glyph information to the vbo
+		startIndex := gr.GlyphCount * floatsPerGlyph
 
+		//UV
+		gr.GlyphVBO[startIndex+0] = g.U
+		gr.GlyphVBO[startIndex+1] = g.V
+
+		//Color
+		gr.GlyphVBO[startIndex+2] = color.R()
+		gr.GlyphVBO[startIndex+3] = color.G()
+		gr.GlyphVBO[startIndex+4] = color.B()
+		gr.GlyphVBO[startIndex+5] = color.A()
+
+		//Model Pos
+		gr.GlyphVBO[startIndex+6] = roundF32(drawPos.X())
+		gr.GlyphVBO[startIndex+7] = roundF32(drawPos.Y())
+		gr.GlyphVBO[startIndex+8] = drawPos.Z()
+
+		//Model Scale
+		gr.GlyphVBO[startIndex+9] = scale.X()
+		gr.GlyphVBO[startIndex+10] = scale.Y()
+
+		gr.GlyphCount++
 		pos.SetX(pos.X() + advanceF32)
-	}
 
-	gr.GlyphVBO = append(gr.GlyphVBO, instancedData...)
+		//If we fill the buffer we issue a draw call
+		if gr.GlyphCount == maxGlyphsPerBatch {
+			gr.Draw()
+		}
+	}
 }
 
 func (gr *GlyphRend) Draw() {
@@ -92,14 +117,12 @@ func (gr *GlyphRend) Draw() {
 		return
 	}
 
-	gr.InstancedBuf.SetData(gr.GlyphVBO)
+	gr.InstancedBuf.SetData(gr.GlyphVBO[:gr.GlyphCount*floatsPerGlyph])
 	gr.InstancedBuf.Bind()
 	gr.GlyphMat.Bind()
 
 	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), gr.GlyphCount)
-
 	gr.GlyphCount = 0
-	gr.GlyphVBO = []float32{}
 }
 
 //SetFace updates the underlying font atlas used by the glyph renderer.
@@ -178,7 +201,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gr := &GlyphRend{
 		GlyphCount: 0,
-		GlyphVBO:   make([]float32, 0),
+		GlyphVBO:   make([]float32, floatsPerGlyph*maxGlyphsPerBatch),
 	}
 
 	//Create glyph mesh
