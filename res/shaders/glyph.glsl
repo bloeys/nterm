@@ -29,7 +29,6 @@ void main()
 
     v2fUV0 = aUV0 + aVertPos.xy * sizeUV;
     v2fColor = aVertColor;
-    v2fFragPos = vec3(modelMat * vec4(aVertPos, 1.0));
 
     gl_Position = projViewMat * modelMat * vec4(aVertPos, 1.0);
 }
@@ -37,9 +36,8 @@ void main()
 //shader:fragment
 #version 410
 
-in vec4 v2fColor;
 in vec2 v2fUV0;
-in vec3 v2fFragPos;
+in vec4 v2fColor;
 
 out vec4 fragColor;
 
@@ -54,6 +52,6 @@ void main()
     // }
     // else
     {
-        fragColor = vec4(v2fColor.rgb, texColor.r);
+        fragColor = vec4(v2fColor.rgb, texColor.r*v2fColor.a);
     }
 } 

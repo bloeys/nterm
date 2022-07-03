@@ -10,10 +10,8 @@ import (
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
-	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
 	"github.com/bloeys/nterm/glyphs"
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/golang/freetype/truetype"
 	"github.com/veandco/go-sdl2/sdl"
 	"golang.org/x/image/font"
@@ -73,7 +71,6 @@ func main() {
 	})
 
 	//Don't flash white
-	gl.ClearColor(0, 0, 0, 0)
 	p.win.SDLWin.GLSwap()
 
 	engine.Run(p, p.win, p.imguiInfo)
@@ -156,11 +153,7 @@ func (p *program) Update() {
 	if input.KeyClicked(sdl.K_SPACE) {
 		p.shouldDrawGrid = !p.shouldDrawGrid
 	}
-
-	fmt.Println("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", charsPerFrame/16384)
 }
-
-const charsPerFrame = 100_000
 
 var xOff float32 = 0
 var yOff float32 = 0
@@ -172,7 +165,12 @@ var b = rand.Float32()
 func (p *program) Render() {
 
 	const colorSpd = 0.005
+	// const charsPerFrame = 100_000
 	defer p.GlyphRend.Draw()
+
+	if p.shouldDrawGrid {
+		p.drawGrid()
+	}
 
 	r += colorSpd
 	if r > 1 {
@@ -190,17 +188,16 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
-
 	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	strLen := len(str)
 
-	for i := 0; i < charsPerFrame/strLen; i++ {
-		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
-	}
+	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
 
-	if p.shouldDrawGrid {
-		p.drawGrid()
-	}
+	// strLen := len(str)
+	// for i := 0; i < charsPerFrame/strLen; i++ {
+	// 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+	// }
+
+	// fmt.Println("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", charsPerFrame/16384)
 }
 
 func (p *program) drawGrid() {
