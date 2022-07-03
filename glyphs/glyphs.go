@@ -64,7 +64,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		}
 		gr.GlyphCount++
 
-		scale := gglm.NewVec3(advanceF32, lineHeightF32, 1)
+		scale := gglm.NewVec2(advanceF32, lineHeightF32)
 
 		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 		//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
@@ -77,7 +77,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 			g.U, g.V,
 			color.R(), color.G(), color.B(), color.A(), //Color
 			roundF32(drawPos.X()), roundF32(drawPos.Y()), drawPos.Z(), //Model pos
-			scale.X(), scale.Y(), scale.Z(), //Model scale
+			scale.X(), scale.Y(), //Model scale
 		}...)
 
 		pos.SetX(pos.X() + advanceF32)
@@ -253,7 +253,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 		buffers.Element{ElementType: buffers.DataTypeVec2}, //UV0
 		buffers.Element{ElementType: buffers.DataTypeVec4}, //Color
 		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelPos
-		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelScale
+		buffers.Element{ElementType: buffers.DataTypeVec2}, //ModelScale
 	)
 
 	gr.InstancedBuf.Bind()

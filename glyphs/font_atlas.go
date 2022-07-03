@@ -148,8 +148,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	drawer.Dot = fixed.P(0, lineHeight)
 	for _, g := range glyphs {
 
-		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
-
+		gBounds, _, _ := face.GlyphBounds(g)
 		ascent := absFixedI26_6(gBounds.Min.Y)
 		descent := absFixedI26_6(gBounds.Max.Y)
 		bearingX := absFixedI26_6(gBounds.Min.X)
@@ -165,7 +164,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		//Get glyph to draw but undo any applied descent so that the glyph is drawn sitting on the line exactly.
 		//Bearing will be applied correctly but descent will be the responsibility of the positioning code
-		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
+		imgRect, mask, maskp, gAdvanceFixed, _ := face.Glyph(drawer.Dot, g)
 		if imgRect.Max.Y > drawer.Dot.Y.Ceil() {
 			diff := imgRect.Max.Y - drawer.Dot.Y.Ceil()
 			imgRect.Min.Y -= diff
