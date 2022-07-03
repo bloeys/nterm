@@ -3,7 +3,6 @@ package glyphs
 import (
 	"errors"
 	"math"
-	"os"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/assets"
@@ -140,7 +139,7 @@ func (gr *GlyphRend) SetFace(fontOptions *truetype.Options) error {
 	}
 
 	gr.Atlas = newAtlas
-	gr.updateFontAtlasTexture("temp-atlas")
+	gr.updateFontAtlasTexture()
 	return nil
 }
 
@@ -152,7 +151,7 @@ func (gr *GlyphRend) SetFontFromFile(fontFile string, fontOptions *truetype.Opti
 	}
 
 	gr.Atlas = atlas
-	gr.updateFontAtlasTexture(fontFile)
+	gr.updateFontAtlasTexture()
 	return nil
 }
 
@@ -160,20 +159,13 @@ func (gr *GlyphRend) SetFontFromFile(fontFile string, fontOptions *truetype.Opti
 //and updates the GlyphRend.AtlasTex field.
 //
 //Any old textures are deleted
-func (gr *GlyphRend) updateFontAtlasTexture(fontFile string) error {
+func (gr *GlyphRend) updateFontAtlasTexture() error {
 
 	if gr.AtlasTex != nil {
 		gl.DeleteTextures(1, &gr.AtlasTex.TexID)
 	}
 
-	pngFileName := fontFile + "-atlas.png"
-	err := SaveImgToPNG(gr.Atlas.Img, pngFileName)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(pngFileName)
-
-	atlasTex, err := assets.LoadTexturePNG(pngFileName, nil)
+	atlasTex, err := assets.LoadTextureInMemImg(gr.Atlas.Img, nil)
 	if err != nil {
 		return err
 	}
@@ -216,7 +208,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	}
 	gr.Atlas = atlas
 
-	err = gr.updateFontAtlasTexture(fontFile)
+	err = gr.updateFontAtlasTexture()
 	if err != nil {
 		return nil, err
 	}

@@ -67,8 +67,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	assert.T(len(glyphs) > 0, "no glyphs")
 
 	//Choose atlas size
-	atlasSizeX := 512
-	atlasSizeY := 512
+	atlasSizeX := 64
+	atlasSizeY := 64
 
 	const charPaddingX = 2
 	const charPaddingY = 2
