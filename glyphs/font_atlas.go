@@ -10,6 +10,7 @@ import (
 	"os"
 	"unicode"
 
+	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nterm/assert"
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
@@ -17,23 +18,23 @@ import (
 )
 
 type FontAtlas struct {
-	Font       *truetype.Font
-	Img        *image.RGBA
-	Glyphs     map[rune]FontAtlasGlyph
+	Font   *truetype.Font
+	Img    *image.RGBA
+	Glyphs map[rune]FontAtlasGlyph
+
+	//Advance is global to the atlas because we only support monospaced fonts
+	Advance    int
 	LineHeight int
+	SizeUV     gglm.Vec2
 }
 
 type FontAtlasGlyph struct {
-	U     float32
-	V     float32
-	SizeU float32
-	SizeV float32
+	U float32
+	V float32
 
 	Ascent   float32
 	Descent  float32
-	Advance  float32
 	BearingX float32
-	Width    float32
 }
 
 //NewFontAtlasFromFile reads a TTF or TTC file and produces a font texture atlas containing
@@ -119,11 +120,16 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	//Create atlas
+	atlasSizeXF32 := float32(atlasSizeX)
+	atlasSizeYF32 := float32(atlasSizeY)
 	atlas := &FontAtlas{
-		Font:       f,
-		Img:        image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
-		Glyphs:     make(map[rune]FontAtlasGlyph, len(glyphs)),
+		Font:   f,
+		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
+		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
+
+		Advance:    charAdv - charPaddingX,
 		LineHeight: lineHeight,
+		SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX)/atlasSizeXF32, float32(lineHeight)/atlasSizeYF32),
 	}
 
 	//Clear background to black
@@ -135,8 +141,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	//Put glyphs on atlas
-	atlasSizeXF32 := float32(atlasSizeX)
-	atlasSizeYF32 := float32(atlasSizeY)
 	charPaddingXFixed := fixed.I(charPaddingX)
 	charPaddingYFixed := fixed.I(charPaddingY)
 
@@ -145,28 +149,18 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	for _, g := range glyphs {
 
 		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
-		advanceCeilF32 := float32(gAdvanceFixed.Ceil())
 
 		ascent := absFixedI26_6(gBounds.Min.Y)
 		descent := absFixedI26_6(gBounds.Max.Y)
 		bearingX := absFixedI26_6(gBounds.Min.X)
 
-		glyphWidth := float32((absFixedI26_6(gBounds.Max.X) - absFixedI26_6(gBounds.Min.X)).Ceil())
-
-		//TODO: Since sizeU/sizeV are now constant we should upload as a uniform
 		atlas.Glyphs[g] = FontAtlasGlyph{
 			U: float32((drawer.Dot.X).Floor()) / atlasSizeXF32,
 			V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())) / atlasSizeYF32,
 
-			SizeU: advanceCeilF32 / atlasSizeXF32,
-			SizeV: float32(lineHeight) / atlasSizeYF32,
-
-			Ascent:  float32(ascent.Ceil()),
-			Descent: float32(descent.Ceil()),
-			Advance: float32(advanceCeilF32),
-
+			Ascent:   float32(ascent.Ceil()),
+			Descent:  float32(descent.Ceil()),
 			BearingX: float32(bearingX.Ceil()),
-			Width:    glyphWidth,
 		}
 
 		//Get glyph to draw but undo any applied descent so that the glyph is drawn sitting on the line exactly.
