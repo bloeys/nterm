@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 
 	"github.com/bloeys/gglm/gglm"
@@ -11,7 +10,6 @@ import (
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
-	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
@@ -87,7 +85,7 @@ func (p *program) Init() {
 	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
 
 	w, h := p.win.SDLWin.GetSize()
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/KawkabMono-Regular.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
@@ -189,16 +187,18 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
-	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
+	// str := " مرحبا كب"
+	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
+	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 
-	// p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
 
-	strLen := len(str)
-	const charsPerFrame = 10_000
-	for i := 0; i < charsPerFrame/strLen; i++ {
-		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
-	}
-	p.win.SDLWin.SetTitle(fmt.Sprint("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch)))
+	// strLen := len(str)
+	// const charsPerFrame = 10_000
+	// for i := 0; i < charsPerFrame/strLen; i++ {
+	// 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*8+yOff, 0), textColor)
+	// }
+	// p.win.SDLWin.SetTitle(fmt.Sprint("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch)))
 }
 
 func (p *program) drawGrid() {

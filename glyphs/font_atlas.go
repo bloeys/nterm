@@ -95,11 +95,11 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	lineHeight := lineHeightFixed.Ceil()
 
 	//Calculate needed atlas size
-	atlasSizeX := 64
-	atlasSizeY := 64
+	atlasSizeX := 128
+	atlasSizeY := 128
 
 	maxLinesInAtlas := atlasSizeY/lineHeight - 2
-	charsPerLine := atlasSizeX / charAdv
+	charsPerLine := atlasSizeX/charAdv - 1
 	linesNeeded := int(math.Ceil(float64(len(glyphs))/float64(charsPerLine))) + 1
 
 	for linesNeeded > maxLinesInAtlas {
@@ -109,7 +109,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		maxLinesInAtlas = atlasSizeY/lineHeight - 2
 
-		charsPerLine = atlasSizeX / charAdv
+		charsPerLine = atlasSizeX/charAdv - 1
 		linesNeeded = int(math.Ceil(float64(len(glyphs))/float64(charsPerLine))) + 1
 	}
 
@@ -143,7 +143,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	charPaddingYFixed := fixed.I(charPaddingY)
 
 	charsOnLine := 0
-	drawer.Dot = fixed.P(0, lineHeight)
+	drawer.Dot = fixed.P(atlas.Advance+charPaddingX, lineHeight)
 	for _, g := range glyphs {
 
 		gBounds, _, _ := face.GlyphBounds(g)
@@ -171,13 +171,13 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		//Draw glyph and advance dot
 		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
-		drawer.Dot.X += gAdvanceFixed + charPaddingXFixed
+		drawer.Dot.X += fixed.I(gAdvanceFixed.Ceil()) + charPaddingXFixed
 
 		charsOnLine++
 		if charsOnLine == charsPerLine {
 
 			charsOnLine = 0
-			drawer.Dot.X = 0
+			drawer.Dot.X = fixed.I(atlas.Advance) + charPaddingXFixed
 			drawer.Dot.Y += lineHeightFixed + charPaddingYFixed
 		}
 	}

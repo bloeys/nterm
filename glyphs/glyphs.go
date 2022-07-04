@@ -3,6 +3,7 @@ package glyphs
 import (
 	"errors"
 	"math"
+	"unicode"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/assets"
@@ -13,8 +14,12 @@ import (
 	"github.com/golang/freetype/truetype"
 )
 
-const floatsPerGlyph = 11
-const MaxGlyphsPerBatch = 16384
+const (
+	MaxGlyphsPerBatch = 16384
+
+	floatsPerGlyph = 11
+	invalidRune    = unicode.ReplacementChar
+)
 
 type GlyphRend struct {
 	Atlas    *FontAtlas
@@ -61,6 +66,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
 	scale := gglm.NewVec2(advanceF32, lineHeightF32)
 
+	prevRune := invalidRune
 	buffIndex := gr.GlyphCount * floatsPerGlyph
 	for i := 0; i < len(rs); i++ {
 
@@ -68,16 +74,26 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		if r == '\n' {
 			screenPos.SetY(screenPos.Y() - lineHeightF32)
 			pos = screenPos.Clone()
+			prevRune = r
 			continue
 		} else if r == ' ' {
 			pos.AddX(advanceF32)
+			prevRune = r
 			continue
 		} else if r == '\t' {
 			pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
+			prevRune = r
 			continue
 		}
 
-		g := gr.Atlas.Glyphs[r]
+		var g *FontAtlasGlyph
+		if i < len(rs)-1 {
+			//start or middle of sentence
+			g = gr.glyphFromRunes(r, prevRune, rs[i+1])
+		} else {
+			//Last character
+			g = gr.glyphFromRunes(r, prevRune, invalidRune)
+		}
 
 		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 		//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
@@ -116,7 +132,78 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		} else {
 			buffIndex += floatsPerGlyph
 		}
+
+		prevRune = r
 	}
+}
+
+func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
+
+	type PosCtx int
+	const (
+		PosCtx_start PosCtx = iota
+		PosCtx_mid
+		PosCtx_end
+	)
+
+	if prev == invalidRune && next == invalidRune {
+		g := gr.Atlas.Glyphs[curr]
+		return &g
+	}
+
+	ctx := PosCtx_mid
+	if prev == invalidRune {
+		ctx = PosCtx_start
+	} else if next == invalidRune {
+		ctx = PosCtx_end
+	}
+
+	switch ctx {
+	case PosCtx_start:
+
+		mappings := runeInfos[curr].DecompMappings
+		for mappedRune := range mappings {
+
+			mri := runeInfos[mappedRune]
+			if mri.IsLigature || mri.DecompTag != CharDecompMap_initial {
+				continue
+			}
+
+			curr = mappedRune
+			break
+		}
+
+	case PosCtx_mid:
+
+		mappings := runeInfos[curr].DecompMappings
+		for mappedRune := range mappings {
+
+			mri := runeInfos[mappedRune]
+			if mri.IsLigature || mri.DecompTag != CharDecompMap_medial {
+				continue
+			}
+
+			curr = mappedRune
+			break
+		}
+
+	case PosCtx_end:
+
+		mappings := runeInfos[curr].DecompMappings
+		for mappedRune := range mappings {
+
+			mri := runeInfos[mappedRune]
+			if mri.IsLigature || mri.DecompTag != CharDecompMap_final {
+				continue
+			}
+
+			curr = mappedRune
+			break
+		}
+	}
+
+	g := gr.Atlas.Glyphs[curr]
+	return &g
 }
 
 func (gr *GlyphRend) Draw() {
@@ -301,8 +388,13 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.GlyphMesh.Buf.SetLayout(buffers.Element{ElementType: buffers.DataTypeVec3})
 
 	gr.SetScreenSize(screenWidth, screenHeight)
+
+	//TODO: Move this
+	runeInfos, _ = loadUnicodeData("./unicode-data.txt")
 	return gr, nil
 }
+
+var runeInfos map[rune]runeInfo
 
 func roundF32(x float32) float32 {
 	return float32(math.Round(float64(x)))
