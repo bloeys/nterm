@@ -77,7 +77,16 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 
 		rs := run
 		prevRune := invalidRune
-		bidiCat := RuneInfos[rs[0]].BidiCat
+
+		//TODO: Information on run (like bidi) should come from GetTextRuns.
+		//Default is left in case we hav a run of neutrals
+		bidiCat := BidiCategory_L
+		for _, r := range rs {
+			if !unicode.Is(unicode.Common, r) {
+				bidiCat = RuneInfos[r].BidiCat
+				break
+			}
+		}
 		isLtr := !(bidiCat == BidiCategory_R || bidiCat == BidiCategory_AL || bidiCat == BidiCategory_RLE || bidiCat == BidiCategory_RLO || bidiCat == BidiCategory_RLI || bidiCat == BidiCategory_RLM)
 
 		if isLtr {
@@ -100,7 +109,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 					continue
 				}
 
-				var g *FontAtlasGlyph
+				var g FontAtlasGlyph
 				if i < len(rs)-1 {
 					//start or middle of sentence
 					g = gr.glyphFromRunes(r, prevRune, rs[i+1])
@@ -170,7 +179,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 					continue
 				}
 
-				var g *FontAtlasGlyph
+				var g FontAtlasGlyph
 				if i > 0 {
 					//start or middle of sentence
 					g = gr.glyphFromRunes(r, rs[i-1], prevRune)
@@ -233,20 +242,39 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 		return nil
 	}
 
-	runs := make([][]rune, 0, 1)
+	runs := make([][]rune, 0, 10)
 	currRunScript := RuneInfos[rs[0]].ScriptTable
 
+	//TODO: We need to detect neutral characters through BiDi category, not being in common
 	runStartIndex := 0
 	for i := 1; i < len(rs); i++ {
 
 		r := rs[i]
 		ri := RuneInfos[r]
-		if ri.ScriptTable == currRunScript {
+		//A run is a set of characters using the same script (and other metrics) minus leading/trailing neutral characters
+		if ri.ScriptTable == currRunScript || ri.ScriptTable == unicode.Common {
 			continue
 		}
 
-		runs = append(runs, rs[runStartIndex:i])
+		//We reached a new run so count trailing neutrals to be removed from this run
+		newRun := rs[runStartIndex:i]
+		trailingCommonsCount := 0
+		for j := len(newRun) - 1; j >= 0; j-- {
+			if !unicode.Is(unicode.Common, newRun[j]) {
+				break
+			}
+			trailingCommonsCount++
+		}
 
+		//If we have a run without trailing neutrals or had a run of just neutrals (e.g. starting sentence with spaces)
+		//then the full run is added, otherwise we slice the run to put neturals in a separate run
+		if trailingCommonsCount == 0 || len(newRun) == trailingCommonsCount {
+			runs = append(runs, newRun)
+		} else {
+			runs = append(runs, newRun[:len(newRun)-trailingCommonsCount], newRun[len(newRun)-trailingCommonsCount:])
+		}
+
+		//The removed neutrals are included as the start of the new run
 		runStartIndex = i
 		currRunScript = ri.ScriptTable
 	}
@@ -256,7 +284,7 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 	return runs
 }
 
-func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
+func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) FontAtlasGlyph {
 
 	type PosCtx int
 	const (
@@ -266,34 +294,47 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 		PosCtx_isolated
 	)
 
-	prevIsLetter := unicode.IsLetter(prev)
-	nextIsLetter := unicode.IsLetter(next)
+	prevIsValid := prev != invalidRune
+	nextIsValid := next != invalidRune
 
 	//Isolated case
-	if !prevIsLetter && !nextIsLetter {
+	if !prevIsValid && !nextIsValid {
 		g := gr.Atlas.Glyphs[curr]
-		return &g
+		return g
 	}
 
-	ctx := PosCtx_mid
-	if prevIsLetter && nextIsLetter {
+	ri := RuneInfos[curr]
+
+	prevJoinType := RuneInfos[prev].JoinType
+	joinWithRight := prevIsValid &&
+		(prevJoinType == JoiningType_Dual || prevJoinType == JoiningType_Left || prevJoinType == JoiningType_Causing) &&
+		(ri.JoinType == JoiningType_Dual || ri.JoinType == JoiningType_Right)
+
+	nextJoinType := RuneInfos[next].JoinType
+	joinWithLeft := nextIsValid &&
+		(nextJoinType == JoiningType_Dual || nextJoinType == JoiningType_Right || nextJoinType == JoiningType_Causing) &&
+		(ri.JoinType == JoiningType_Dual || ri.JoinType == JoiningType_Left)
+
+	var ctx PosCtx
+	if joinWithRight && joinWithLeft {
 		ctx = PosCtx_mid
-	} else if nextIsLetter {
+	} else if joinWithLeft {
 		ctx = PosCtx_start
-	} else {
+	} else if joinWithRight {
 		ctx = PosCtx_end
+	} else {
+		ctx = PosCtx_isolated
 	}
 
 	//This is only needed for Arabic (I think)
 	switch ctx {
 	case PosCtx_start:
 
-		equivRunes := RuneInfos[curr].EquivalentRunes
-		for i := 0; i < len(equivRunes); i++ {
+		for i := 0; i < len(ri.EquivalentRunes); i++ {
 
-			otherRune := equivRunes[i]
-			otherRuneInfo := RuneInfos[otherRune]
-			if otherRuneInfo.DecompTag == DecompTag_initial {
+			otherRune := ri.EquivalentRunes[i]
+			otherDecompTag := RuneInfos[otherRune].DecompTag
+			if otherDecompTag == DecompTag_initial {
 				curr = otherRune
 				break
 			}
@@ -301,12 +342,11 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 
 	case PosCtx_mid:
 
-		equivRunes := RuneInfos[curr].EquivalentRunes
-		for i := 0; i < len(equivRunes); i++ {
+		for i := 0; i < len(ri.EquivalentRunes); i++ {
 
-			otherRune := equivRunes[i]
-			otherRuneInfo := RuneInfos[otherRune]
-			if otherRuneInfo.DecompTag == DecompTag_medial {
+			otherRune := ri.EquivalentRunes[i]
+			otherDecompTag := RuneInfos[otherRune].DecompTag
+			if otherDecompTag == DecompTag_medial {
 				curr = otherRune
 				break
 			}
@@ -314,20 +354,32 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 
 	case PosCtx_end:
 
-		equivRunes := RuneInfos[curr].EquivalentRunes
-		for i := 0; i < len(equivRunes); i++ {
+		for i := 0; i < len(ri.EquivalentRunes); i++ {
 
-			otherRune := equivRunes[i]
-			otherRuneInfo := RuneInfos[otherRune]
-			if otherRuneInfo.DecompTag == DecompTag_final {
+			otherRune := ri.EquivalentRunes[i]
+			otherDecompTag := RuneInfos[otherRune].DecompTag
+			if otherDecompTag == DecompTag_final {
 				curr = otherRune
 				break
 			}
 		}
+
+	case PosCtx_isolated:
+
+		// equivRunes := RuneInfos[curr].EquivalentRunes
+		// for i := 0; i < len(equivRunes); i++ {
+
+		// 	otherRune := equivRunes[i]
+		// 	otherRuneInfo := RuneInfos[otherRune]
+		// 	if otherRuneInfo.DecompTag == DecompTag_isolated {
+		// 		curr = otherRune
+		// 		break
+		// 	}
+		// }
 	}
 
 	g := gr.Atlas.Glyphs[curr]
-	return &g
+	return g
 }
 
 func (gr *GlyphRend) Draw() {

@@ -73,7 +73,12 @@ func main() {
 	//Don't flash white
 	p.win.SDLWin.GLSwap()
 
+	// var pf, _ = os.Create("pprof.cpu")
+	// defer pf.Close()
+
+	// pprof.StartCPUProfile(pf)
 	engine.Run(p, p.win, p.imguiInfo)
+	// pprof.StopCPUProfile()
 }
 
 func (p *program) Init() {
@@ -101,11 +106,11 @@ func (p *program) Init() {
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
 
-	runs := p.GlyphRend.GetTextRuns("hello مرحبا,")
-	fmt.Printf("%+v\n", runs)
-	for _, r := range runs {
-		fmt.Printf("%s;\n", string(r))
-	}
+	// runs := p.GlyphRend.GetTextRuns("hello there يا friend. أسمي عمر wow")
+	// fmt.Printf("%+v\n", runs)
+	// for _, r := range runs {
+	// 	fmt.Printf("%s;\n", string(r))
+	// }
 }
 
 func (p *program) Update() {
@@ -170,6 +175,8 @@ var b = rand.Float32()
 
 func (p *program) Render() {
 
+	// println("Will profile with pprof...")
+
 	defer p.GlyphRend.Draw()
 
 	if p.shouldDrawGrid {
@@ -193,18 +200,21 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
-	// str := " مرحبا بك"
-	str := "hello there يا friend. أسمي wow"
+	// str := "مرحبا بك my friend"
+	str := "  hello there يا friend. أسمي عمر wow"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 
 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+
 	// strLen := len(str)
-	// const charsPerFrame = 10_000
+	// const charsPerFrame = 100_000
 	// for i := 0; i < charsPerFrame/strLen; i++ {
 	// 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*8+yOff, 0), textColor)
 	// }
-	// p.win.SDLWin.SetTitle(fmt.Sprint("FPS:", int(timing.GetAvgFPS()), "; Draws per frame:", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch)))
+	// fps := int(timing.GetAvgFPS())
+	// p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
+
 }
 
 func (p *program) drawGrid() {
@@ -225,6 +235,7 @@ func (p *program) drawGrid() {
 }
 
 func (p *program) FrameEnd() {
+
 }
 
 func (p *program) DeInit() {

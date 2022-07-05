@@ -71,12 +71,13 @@ const (
 	BidiCategory_LRM                     // Left-to-Right Mark
 	BidiCategory_RLM                     // Right-to-Left Mark
 	BidiCategory_ALM                     // Arabic Letter Mark
-	BidiCategory_NSM                     // Non-Spacing Mark
-	BidiCategory_BN                      // Boundary Neutral
-	BidiCategory_B                       // Paragraph Separator
-	BidiCategory_S                       // Segment Separator
-	BidiCategory_WS                      // Whitespace
-	BidiCategory_ON                      // Other Neutrals
+
+	BidiCategory_NSM // Non-Spacing Mark
+	BidiCategory_BN  // Boundary Neutral
+	BidiCategory_B   // Paragraph Separator
+	BidiCategory_S   // Segment Separator
+	BidiCategory_WS  // Whitespace
+	BidiCategory_ON  // Other Neutrals
 )
 
 type DecompTag uint8
