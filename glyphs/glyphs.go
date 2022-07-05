@@ -513,7 +513,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gr.SetScreenSize(screenWidth, screenHeight)
 
-	RuneInfos, err = ParseUnicodeData("./unicode-data-13.txt")
+	RuneInfos, err = ParseUnicodeData("./unicode-data-13.txt", "./arabic-shaping-13.txt")
 	if err != nil {
 		return nil, err
 	}

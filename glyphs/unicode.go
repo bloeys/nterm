@@ -143,12 +143,23 @@ func (cd DecompTag) String() string {
 	}
 }
 
-type RuneInfo struct {
-	Name      string
-	Cat       Category
-	BidiCat   BidiCategory
-	DecompTag DecompTag
+type JoiningType uint8
 
+const (
+	JoiningType_Right JoiningType = iota
+	JoiningType_Left
+	JoiningType_Dual
+	JoiningType_Causing
+	JoiningType_None
+	JoiningType_Transparent
+)
+
+type RuneInfo struct {
+	Name       string
+	Cat        Category
+	BidiCat    BidiCategory
+	DecompTag  DecompTag
+	JoinType   JoiningType
 	IsLigature bool
 
 	//Decomp is the ordered set of runes this rune decomposes into
@@ -170,9 +181,9 @@ type RuneInfo struct {
 // Any runes that don't fall in a script range are ignored (usually only a handful).
 //
 //The latest file can be found at https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt
-func ParseUnicodeData(unicodeFile string, rangesToLoad ...*unicode.RangeTable) (map[rune]RuneInfo, error) {
+func ParseUnicodeData(unicodeDataFile, arabicShapingFile string, rangesToLoad ...*unicode.RangeTable) (map[rune]RuneInfo, error) {
 
-	type field int
+	type field uint8
 	const (
 		field_codeValue         field = 0
 		field_charName          field = 1
@@ -191,7 +202,12 @@ func ParseUnicodeData(unicodeFile string, rangesToLoad ...*unicode.RangeTable) (
 		field_titleCaseMap      field = 14
 	)
 
-	fBytes, err := os.ReadFile(unicodeFile)
+	asInfo, err := ParseArabicShaping(arabicShapingFile)
+	if err != nil {
+		return nil, err
+	}
+
+	fBytes, err := os.ReadFile(unicodeDataFile)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +237,16 @@ func ParseUnicodeData(unicodeFile string, rangesToLoad ...*unicode.RangeTable) (
 			//NOTE: This is not perfect (NamesList.txt notes some additional ligatures), but good enough :)
 			IsLigature:  strings.Contains(fields[field_charName], "LIGATURE"),
 			ScriptTable: scriptTable,
+		}
+
+		//Handle join type
+		asi, ok := asInfo[r]
+		if ok {
+			ri.JoinType = asi.JoinType
+		} else if ri.Cat == Category_Mn || ri.Cat == Category_Me || ri.Cat == Category_Cf {
+			ri.JoinType = JoiningType_Transparent
+		} else {
+			ri.JoinType = JoiningType_None
 		}
 
 		//This might already be created for us by a previous ruen
@@ -840,5 +866,61 @@ func charDecompMapStringToCharDecompMap(c string) DecompTag {
 		return DecompTag_NONE
 	default:
 		panic("unknown charDecomMap string: " + c)
+	}
+}
+
+type ArabicShapingInfo struct {
+	JoinType JoiningType
+}
+
+func ParseArabicShaping(arabicShapingFile string) (map[rune]ArabicShapingInfo, error) {
+
+	type field int
+	const (
+		field_codeValue    field = 0
+		field_charName     field = 1
+		field_joiningType  field = 2
+		field_joiningGroup field = 3
+	)
+
+	fBytes, err := os.ReadFile(arabicShapingFile)
+	if err != nil {
+		return nil, err
+	}
+
+	asInfo := map[rune]ArabicShapingInfo{}
+	lines := strings.Split(string(fBytes), "\n")
+	for _, l := range lines {
+
+		if len(l) == 0 || l[0] == '#' {
+			continue
+		}
+
+		fields := strings.SplitN(l, ";", 4)
+		asInfo[runeFromHexCodeString(fields[field_codeValue])] = ArabicShapingInfo{
+			JoinType: joiningTypeFromString(fields[field_joiningType]),
+		}
+	}
+
+	return asInfo, nil
+}
+
+func joiningTypeFromString(c string) JoiningType {
+
+	switch c {
+	case " R":
+		return JoiningType_Right
+	case " L":
+		return JoiningType_Left
+	case " D":
+		return JoiningType_Dual
+	case " C":
+		return JoiningType_Causing
+	case " U":
+		return JoiningType_None
+	case " T":
+		return JoiningType_Transparent
+	default:
+		panic("unknown joining type string: " + c)
 	}
 }
