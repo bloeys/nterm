@@ -77,85 +77,94 @@ const (
 	BidiCategory_ON                      // Other Neutrals
 )
 
-type CharDecompMapTag uint8
+type DecompTag uint8
 
 const (
-	CharDecompMap_font     CharDecompMapTag = iota // A font variant (e.g. a blackletter form).
-	CharDecompMap_noBreak                          // A no-break version of a space or hyphen.
-	CharDecompMap_initial                          // An initial presentation form (Arabic).
-	CharDecompMap_medial                           // A medial presentation form (Arabic).
-	CharDecompMap_final                            // A final presentation form (Arabic).
-	CharDecompMap_isolated                         // An isolated presentation form (Arabic).
-	CharDecompMap_circle                           // An encircled form.
-	CharDecompMap_super                            // A superscript form.
-	CharDecompMap_sub                              // A subscript form.
-	CharDecompMap_vertical                         // A vertical layout presentation form.
-	CharDecompMap_wide                             // A wide (or zenkaku) compatibility character.
-	CharDecompMap_narrow                           // A narrow (or hankaku) compatibility character.
-	CharDecompMap_small                            // A small variant form (CNS compatibility).
-	CharDecompMap_square                           // A CJK squared font variant.
-	CharDecompMap_fraction                         // A vulgar fraction form.
-	CharDecompMap_compat                           // Otherwise unspecified compatibility character.
-	CharDecompMap_NONE                             // Not decomposition mapping tag, which indicates canonical form.
+	DecompTag_font     DecompTag = iota // A font variant (e.g. a blackletter form).
+	DecompTag_noBreak                   // A no-break version of a space or hyphen.
+	DecompTags_initial                  // An initial presentation form (Arabic).
+	DecompTag_medial                    // A medial presentation form (Arabic).
+	DecompTag_final                     // A final presentation form (Arabic).
+	DecompTag_isolated                  // An isolated presentation form (Arabic).
+	DecompTag_circle                    // An encircled form.
+	DecompTag_super                     // A superscript form.
+	DecompTag_sub                       // A subscript form.
+	DecompTag_vertical                  // A vertical layout presentation form.
+	DecompTag_wide                      // A wide (or zenkaku) compatibility character.
+	DecompTag_narrow                    // A narrow (or hankaku) compatibility character.
+	DecompTag_small                     // A small variant form (CNS compatibility).
+	DecompTag_square                    // A CJK squared font variant.
+	DecompTag_fraction                  // A vulgar fraction form.
+	DecompTag_compat                    // Otherwise unspecified compatibility character.
+	DecompTag_NONE                      // Not decomposition mapping tag, which indicates canonical form.
 )
 
-func (cd CharDecompMapTag) String() string {
+func (cd DecompTag) String() string {
 	switch cd {
 
-	case CharDecompMap_font:
+	case DecompTag_font:
 		return "font"
-	case CharDecompMap_noBreak:
+	case DecompTag_noBreak:
 		return "noBreak"
-	case CharDecompMap_initial:
+	case DecompTags_initial:
 		return "initial"
-	case CharDecompMap_medial:
+	case DecompTag_medial:
 		return "medial"
-	case CharDecompMap_final:
+	case DecompTag_final:
 		return "final"
-	case CharDecompMap_isolated:
+	case DecompTag_isolated:
 		return "isolated"
-	case CharDecompMap_circle:
+	case DecompTag_circle:
 		return "circle"
-	case CharDecompMap_super:
+	case DecompTag_super:
 		return "super"
-	case CharDecompMap_sub:
+	case DecompTag_sub:
 		return "sub"
-	case CharDecompMap_vertical:
+	case DecompTag_vertical:
 		return "vertical"
-	case CharDecompMap_wide:
+	case DecompTag_wide:
 		return "wide"
-	case CharDecompMap_narrow:
+	case DecompTag_narrow:
 		return "narrow"
-	case CharDecompMap_small:
+	case DecompTag_small:
 		return "small"
-	case CharDecompMap_square:
+	case DecompTag_square:
 		return "square"
-	case CharDecompMap_fraction:
+	case DecompTag_fraction:
 		return "fraction"
-	case CharDecompMap_compat:
+	case DecompTag_compat:
 		return "compat"
-	case CharDecompMap_NONE:
+	case DecompTag_NONE:
 		return "NONE"
 	default:
 		panic(fmt.Sprint("unknown CharDecompMapTag value:", uint8(cd)))
 	}
 }
 
-type runeInfo struct {
-	Name    string
-	Cat     Category
-	BidiCat BidiCategory
+type RuneInfo struct {
+	Name      string
+	Cat       Category
+	BidiCat   BidiCategory
+	DecompTag DecompTag
 
-	DecompTag      CharDecompMapTag
-	IsLigature     bool
-	DecompMappings map[rune]struct{}
+	IsLigature bool
+
+	//Decomp is the ordered set of runes this rune decomposes into
+	//as defined by unicodeData.txt
+	Decomp []rune
+
+	//EquivalentRunes are runes that are canonically or compatiability equivalent to this rune
+	EquivalentRunes []rune
 }
 
-//loadUnicodeData decodes a 'UnicodeData' file according
-//to http://www.unicode.org/Public/3.0-Update/UnicodeData-3.0.0.html
+//ParseUnicodeData decodes a 'UnicodeData' file according
+//to http://www.unicode.org/Public/3.0-Update/UnicodeData-3.0.0.html and returns a map containing information
+//on all runes within the passed ranges.
 //
-//The latest file is at https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt
-func loadUnicodeData(unicodeFile string) (map[rune]runeInfo, error) {
+//If no ranges are passed then the full unicode data file will be decoded
+//
+//The latest file can be found at https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt
+func ParseUnicodeData(unicodeFile string, rangesToLoad ...*unicode.RangeTable) (map[rune]RuneInfo, error) {
 
 	type field int
 	const (
@@ -181,27 +190,30 @@ func loadUnicodeData(unicodeFile string) (map[rune]runeInfo, error) {
 		return nil, err
 	}
 
-	ris := make(map[rune]runeInfo)
+	ris := make(map[rune]RuneInfo)
 	lines := strings.Split(string(fBytes), "\n")
 	for _, l := range lines {
 
 		fields := strings.SplitN(l, ";", 15)
 		r := runeFromHexCodeString(fields[field_codeValue])
-		if !unicode.Is(unicode.Arabic, r) {
+		if rangesToLoad != nil && !unicode.In(r, rangesToLoad...) {
 			continue
 		}
 
 		ri := ris[r]
-		ri = runeInfo{
+		ri = RuneInfo{
 			Name:      fields[field_charName],
 			Cat:       categoryStringToCategory(fields[field_generalCategory]),
 			BidiCat:   bidiCategoryStringToBidiCategory(fields[field_bidiCategory]),
-			DecompTag: CharDecompMap_NONE,
+			DecompTag: DecompTag_NONE,
+
+			//NOTE: This is not perfect (NamesList.txt notes some additional ligatures), but good enough :)
+			IsLigature: strings.Contains(fields[field_charName], "LIGATURE"),
 		}
 
-		//This field might already be set by another char mapping to us
-		if ri.DecompMappings == nil {
-			ri.DecompMappings = make(map[rune]struct{})
+		//This might already be created for us by a previous ruen
+		if ri.EquivalentRunes == nil {
+			ri.EquivalentRunes = []rune{}
 		}
 
 		if len(fields[field_charDecomp]) > 0 {
@@ -209,37 +221,37 @@ func loadUnicodeData(unicodeFile string) (map[rune]runeInfo, error) {
 			fieldItems := strings.Split(fields[field_charDecomp], " ")
 			if fieldItems[0][0] == '<' {
 				ri.DecompTag = charDecompMapStringToCharDecompMap(fieldItems[0])
+				fieldItems = fieldItems[1:]
 			}
 
-			//We consider a unicode codepoint that decomposes to more than one char a ligature
-			ri.IsLigature = len(fieldItems) >= 3
-			for i := 1; i < len(fieldItems); i++ {
+			//One character decomposition indicates equivalence
+			if len(fieldItems) == 1 {
 
-				mappedRune := runeFromHexCodeString(fieldItems[i])
-				ri.DecompMappings[mappedRune] = struct{}{}
+				decompRune := runeFromHexCodeString(fieldItems[0])
+				ri.Decomp = []rune{decompRune}
+				ri.EquivalentRunes = append(ri.EquivalentRunes, decompRune)
 
-				//Add this rune as a map of the other rune as well
-				otherRi, ok := ris[mappedRune]
-				if !ok {
-					otherRi.DecompMappings = make(map[rune]struct{})
+				//Add this rune as equivalent to decomposed rune
+				decompRuneInfo := ris[decompRune]
+				if decompRuneInfo.EquivalentRunes == nil {
+					decompRuneInfo.EquivalentRunes = []rune{r}
+				} else {
+					decompRuneInfo.EquivalentRunes = append(decompRuneInfo.EquivalentRunes, r)
 				}
-				otherRi.DecompMappings[r] = struct{}{}
-				ris[mappedRune] = otherRi
+
+				ris[decompRune] = decompRuneInfo
+
+			} else {
+
+				ri.Decomp = make([]rune, len(fieldItems))
+				for i := 0; i < len(fieldItems); i++ {
+					ri.Decomp[i] = runeFromHexCodeString(fieldItems[i])
+				}
 			}
 		}
 
 		ris[r] = ri
 	}
-
-	// meemRi := ris['م']
-	// for mappedRune := range meemRi.DecompMappings {
-
-	// 	mappedRuneInfo := ris[mappedRune]
-	// 	if mappedRuneInfo.IsLigature {
-	// 		continue
-	// 	}
-	// 	fmt.Printf("Meem mapping: %c. code=%x. Type=%s\n", mappedRune, mappedRune, mappedRuneInfo.DecompTag.String())
-	// }
 
 	return ris, nil
 }
@@ -248,7 +260,7 @@ func runeFromHexCodeString(c string) rune {
 
 	codepointU64, err := strconv.ParseUint(c, 16, 32)
 	if err != nil {
-		return invalidRune
+		panic("Invalid rune: " + c)
 	}
 
 	return rune(codepointU64)
@@ -382,43 +394,43 @@ func bidiCategoryStringToBidiCategory(c string) BidiCategory {
 	}
 }
 
-func charDecompMapStringToCharDecompMap(c string) CharDecompMapTag {
+func charDecompMapStringToCharDecompMap(c string) DecompTag {
 
 	switch c {
 	case "<font>":
-		return CharDecompMap_font
+		return DecompTag_font
 	case "<noBreak>":
-		return CharDecompMap_noBreak
+		return DecompTag_noBreak
 	case "<initial>":
-		return CharDecompMap_initial
+		return DecompTags_initial
 	case "<medial>":
-		return CharDecompMap_medial
+		return DecompTag_medial
 	case "<final>":
-		return CharDecompMap_final
+		return DecompTag_final
 	case "<isolated>":
-		return CharDecompMap_isolated
+		return DecompTag_isolated
 	case "<circle>":
-		return CharDecompMap_circle
+		return DecompTag_circle
 	case "<super>":
-		return CharDecompMap_super
+		return DecompTag_super
 	case "<sub>":
-		return CharDecompMap_sub
+		return DecompTag_sub
 	case "<vertical>":
-		return CharDecompMap_vertical
+		return DecompTag_vertical
 	case "<wide>":
-		return CharDecompMap_wide
+		return DecompTag_wide
 	case "<narrow>":
-		return CharDecompMap_narrow
+		return DecompTag_narrow
 	case "<small>":
-		return CharDecompMap_small
+		return DecompTag_small
 	case "<square>":
-		return CharDecompMap_square
+		return DecompTag_square
 	case "<fraction>":
-		return CharDecompMap_fraction
+		return DecompTag_fraction
 	case "<compat>":
-		return CharDecompMap_compat
+		return DecompTag_compat
 	case "":
-		return CharDecompMap_NONE
+		return DecompTag_NONE
 	default:
 		panic("unknown charDecomMap string: " + c)
 	}

@@ -100,6 +100,9 @@ func (p *program) Init() {
 
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
+
+	fmt.Printf("Beh equivalents: %v\n", string(glyphs.RuneInfos['ب'].EquivalentRunes))
+	// engine.Quit()
 }
 
 func (p *program) Update() {
@@ -187,12 +190,11 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
-	// str := " مرحبا كب"
-	str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
+	str := " مرحبا بك"
+	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 
 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
-
 	// strLen := len(str)
 	// const charsPerFrame = 10_000
 	// for i := 0; i < charsPerFrame/strLen; i++ {

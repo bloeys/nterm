@@ -21,6 +21,10 @@ const (
 	invalidRune    = unicode.ReplacementChar
 )
 
+var (
+	RuneInfos map[rune]RuneInfo
+)
+
 type GlyphRend struct {
 	Atlas    *FontAtlas
 	AtlasTex *assets.Texture
@@ -144,62 +148,44 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 		PosCtx_start PosCtx = iota
 		PosCtx_mid
 		PosCtx_end
+		PosCtx_isolated
 	)
 
-	if prev == invalidRune && next == invalidRune {
+	prevIsLetter := unicode.IsLetter(prev)
+	nextIsLetter := unicode.IsLetter(next)
+
+	//Isolated case
+	if !prevIsLetter && !nextIsLetter {
 		g := gr.Atlas.Glyphs[curr]
 		return &g
 	}
 
 	ctx := PosCtx_mid
-	if prev == invalidRune {
+	if prevIsLetter && nextIsLetter {
+		ctx = PosCtx_mid
+	} else if nextIsLetter {
 		ctx = PosCtx_start
-	} else if next == invalidRune {
+	} else {
 		ctx = PosCtx_end
 	}
 
 	switch ctx {
 	case PosCtx_start:
 
-		mappings := runeInfos[curr].DecompMappings
-		for mappedRune := range mappings {
+		equivRunes := RuneInfos[curr].EquivalentRunes
+		for i := 0; i < len(equivRunes); i++ {
 
-			mri := runeInfos[mappedRune]
-			if mri.IsLigature || mri.DecompTag != CharDecompMap_initial {
-				continue
+			otherRune := equivRunes[i]
+			otherRuneInfo := RuneInfos[otherRune]
+			if otherRuneInfo.DecompTag == DecompTags_initial {
+				curr = otherRune
+				break
 			}
-
-			curr = mappedRune
-			break
 		}
 
 	case PosCtx_mid:
 
-		mappings := runeInfos[curr].DecompMappings
-		for mappedRune := range mappings {
-
-			mri := runeInfos[mappedRune]
-			if mri.IsLigature || mri.DecompTag != CharDecompMap_medial {
-				continue
-			}
-
-			curr = mappedRune
-			break
-		}
-
 	case PosCtx_end:
-
-		mappings := runeInfos[curr].DecompMappings
-		for mappedRune := range mappings {
-
-			mri := runeInfos[mappedRune]
-			if mri.IsLigature || mri.DecompTag != CharDecompMap_final {
-				continue
-			}
-
-			curr = mappedRune
-			break
-		}
 	}
 
 	g := gr.Atlas.Glyphs[curr]
@@ -389,12 +375,13 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gr.SetScreenSize(screenWidth, screenHeight)
 
-	//TODO: Move this
-	runeInfos, _ = loadUnicodeData("./unicode-data.txt")
+	RuneInfos, err = ParseUnicodeData("./unicode-data.txt")
+	if err != nil {
+		return nil, err
+	}
+
 	return gr, nil
 }
-
-var runeInfos map[rune]runeInfo
 
 func roundF32(x float32) float32 {
 	return float32(math.Round(float64(x)))
