@@ -100,6 +100,9 @@ func (p *program) Init() {
 
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
+
+	// runs := p.GlyphRend.GetTextRuns("hello there يا friend")
+	// fmt.Printf("%+v\n%s\n%s\n%s\n", runs, string(runs[0]), string(runs[1]), string(runs[2]))
 }
 
 func (p *program) Update() {

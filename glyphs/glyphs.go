@@ -143,14 +143,35 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 
 func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 
-	// rs := []rune(t)
-	// runScript := unicode.Arabic
-	// runStartIndex := 0
-	// runs := make([][]rune, 0)
-	// for i := 0; i < len(rs); i++ {
+	rs := []rune(t)
 
-	// }
-	return nil
+	if len(rs) == 0 {
+		return [][]rune{}
+	}
+
+	runs := make([][]rune, 0, 1)
+	currRunScript := RuneInfos[rs[0]].ScriptTable
+
+	runStartIndex := 0
+	for i := 1; i < len(rs); i++ {
+
+		r := rs[i]
+		ri := RuneInfos[r]
+		if ri.ScriptTable == currRunScript || ri.ScriptTable == unicode.Common {
+			continue
+		}
+
+		runs = append(runs, rs[runStartIndex:i])
+
+		runStartIndex = i
+		currRunScript = ri.ScriptTable
+	}
+
+	if runStartIndex != len(rs)-1 {
+		runs = append(runs, rs[runStartIndex:])
+	}
+
+	return runs
 }
 
 func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
