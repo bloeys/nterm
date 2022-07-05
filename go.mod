@@ -14,5 +14,4 @@ require (
 require (
 	github.com/bloeys/assimp-go v0.4.2 // indirect
 	github.com/inkyblackness/imgui-go/v4 v4.3.0 // indirect
-	golang.org/x/text v0.3.7 // indirect
 )

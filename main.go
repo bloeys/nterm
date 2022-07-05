@@ -100,9 +100,6 @@ func (p *program) Init() {
 
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
-
-	fmt.Printf("Beh equivalents: %v\n", string(glyphs.RuneInfos['ب'].EquivalentRunes))
-	// engine.Quit()
 }
 
 func (p *program) Update() {

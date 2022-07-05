@@ -141,6 +141,18 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	}
 }
 
+func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
+
+	// rs := []rune(t)
+	// runScript := unicode.Arabic
+	// runStartIndex := 0
+	// runs := make([][]rune, 0)
+	// for i := 0; i < len(rs); i++ {
+
+	// }
+	return nil
+}
+
 func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 
 	type PosCtx int
@@ -375,7 +387,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gr.SetScreenSize(screenWidth, screenHeight)
 
-	RuneInfos, err = ParseUnicodeData("./unicode-data.txt")
+	RuneInfos, err = ParseUnicodeData("./unicode-data-13.txt")
 	if err != nil {
 		return nil, err
 	}

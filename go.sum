@@ -2,8 +2,6 @@ github.com/bloeys/assimp-go v0.4.2 h1:ArVK74BCFcTO/rCGj2NgZG9xtbjnJdEn5npIeJx1Z0
 github.com/bloeys/assimp-go v0.4.2/go.mod h1:my3yRxT7CfOztmvi+0svmwbaqw0KFrxaHxncoyaEIP0=
 github.com/bloeys/gglm v0.41.10 h1:R9FMiI+VQVXAI+vDwCB7z9xqzy5VAR1657u8TQTDNKA=
 github.com/bloeys/gglm v0.41.10/go.mod h1:qwJQ0WzV191wAMwlGicbfbChbKoSedMk7gFFX6GnyOk=
-github.com/bloeys/nmage v0.12.12 h1:LeMR6NI+yMqxAZecdz7lOT1re4CWAVd1wDeJFK77+pI=
-github.com/bloeys/nmage v0.12.12/go.mod h1:chDDenktiDvAG4BoFYNq1n8nACpbQ6/RFuCgCGmDxh4=
 github.com/bloeys/nmage v0.12.13 h1:xvoaMAdHNnVif7LCaQkYR7jewXDZa9B1iV7IdG39dgc=
 github.com/bloeys/nmage v0.12.13/go.mod h1:chDDenktiDvAG4BoFYNq1n8nACpbQ6/RFuCgCGmDxh4=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
@@ -23,6 +21,5 @@ github.com/veandco/go-sdl2 v0.4.10 h1:8QoD2bhWl7SbQDflIAUYWfl9Vq+mT8/boJFAUzAScg
 github.com/veandco/go-sdl2 v0.4.10/go.mod h1:OROqMhHD43nT4/i9crJukyVecjPNYYuCofep6SNiAjY=
 golang.org/x/image v0.0.0-20220617043117-41969df76e82 h1:KpZB5pUSBvrHltNEdK/tw0xlPeD13M6M6aGP32gKqiw=
 golang.org/x/image v0.0.0-20220617043117-41969df76e82/go.mod h1:doUCurBvlfPMKfmIpRIywoHmhN3VyhnoFDbvIEWF4hY=
-golang.org/x/text v0.3.7 h1:olpwvP2KacW1ZWvsR7uQhoyTYvKAupfQrRGBFM352Gk=
 golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
 golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
