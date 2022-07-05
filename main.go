@@ -101,8 +101,11 @@ func (p *program) Init() {
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
 
-	// runs := p.GlyphRend.GetTextRuns("hello there يا friend")
-	// fmt.Printf("%+v\n%s\n%s\n%s\n", runs, string(runs[0]), string(runs[1]), string(runs[2]))
+	runs := p.GlyphRend.GetTextRuns("hello مرحبا,")
+	fmt.Printf("%+v\n", runs)
+	for _, r := range runs {
+		fmt.Printf("%s;\n", string(r))
+	}
 }
 
 func (p *program) Update() {
@@ -190,7 +193,8 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
-	str := " مرحبا بك"
+	// str := " مرحبا بك"
+	str := "hello there يا friend. أسمي wow"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 

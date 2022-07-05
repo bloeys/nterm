@@ -84,7 +84,7 @@ type DecompTag uint8
 const (
 	DecompTag_font     DecompTag = iota // A font variant (e.g. a blackletter form).
 	DecompTag_noBreak                   // A no-break version of a space or hyphen.
-	DecompTags_initial                  // An initial presentation form (Arabic).
+	DecompTag_initial                   // An initial presentation form (Arabic).
 	DecompTag_medial                    // A medial presentation form (Arabic).
 	DecompTag_final                     // A final presentation form (Arabic).
 	DecompTag_isolated                  // An isolated presentation form (Arabic).
@@ -108,7 +108,7 @@ func (cd DecompTag) String() string {
 		return "font"
 	case DecompTag_noBreak:
 		return "noBreak"
-	case DecompTags_initial:
+	case DecompTag_initial:
 		return "initial"
 	case DecompTag_medial:
 		return "medial"
@@ -809,7 +809,7 @@ func charDecompMapStringToCharDecompMap(c string) DecompTag {
 	case "<noBreak>":
 		return DecompTag_noBreak
 	case "<initial>":
-		return DecompTags_initial
+		return DecompTag_initial
 	case "<medial>":
 		return DecompTag_medial
 	case "<final>":

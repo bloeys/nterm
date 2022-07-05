@@ -61,83 +61,167 @@ func (gr *GlyphRend) DrawTextOpenGL01(text string, screenPos *gglm.Vec3, color *
 //Color is RGBA in the range [0,1].
 func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
 
-	//Prepass to pre-allocate the buffer
-	rs := []rune(text)
+	runs := gr.GetTextRuns(text)
+	if runs == nil {
+		return
+	}
 
-	// startPos := screenPos.Clone()
 	pos := screenPos.Clone()
 	advanceF32 := float32(gr.Atlas.Advance)
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
 	scale := gglm.NewVec2(advanceF32, lineHeightF32)
 
-	prevRune := invalidRune
 	buffIndex := gr.GlyphCount * floatsPerGlyph
-	for i := 0; i < len(rs); i++ {
 
-		r := rs[i]
-		if r == '\n' {
-			screenPos.SetY(screenPos.Y() - lineHeightF32)
-			pos = screenPos.Clone()
-			prevRune = r
-			continue
-		} else if r == ' ' {
-			pos.AddX(advanceF32)
-			prevRune = r
-			continue
-		} else if r == '\t' {
-			pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
-			prevRune = r
-			continue
-		}
+	for _, run := range runs {
 
-		var g *FontAtlasGlyph
-		if i < len(rs)-1 {
-			//start or middle of sentence
-			g = gr.glyphFromRunes(r, prevRune, rs[i+1])
+		rs := run
+		prevRune := invalidRune
+		bidiCat := RuneInfos[rs[0]].BidiCat
+		isLtr := !(bidiCat == BidiCategory_R || bidiCat == BidiCategory_AL || bidiCat == BidiCategory_RLE || bidiCat == BidiCategory_RLO || bidiCat == BidiCategory_RLI || bidiCat == BidiCategory_RLM)
+
+		if isLtr {
+
+			for i := 0; i < len(rs); i++ {
+
+				r := rs[i]
+				if r == '\n' {
+					screenPos.SetY(screenPos.Y() - lineHeightF32)
+					pos = screenPos.Clone()
+					prevRune = r
+					continue
+				} else if r == ' ' {
+					pos.AddX(advanceF32)
+					prevRune = r
+					continue
+				} else if r == '\t' {
+					pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
+					prevRune = r
+					continue
+				}
+
+				var g *FontAtlasGlyph
+				if i < len(rs)-1 {
+					//start or middle of sentence
+					g = gr.glyphFromRunes(r, prevRune, rs[i+1])
+				} else {
+					//Last character
+					g = gr.glyphFromRunes(r, prevRune, invalidRune)
+				}
+
+				//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
+				//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
+				//So to position correctly we move them down by the descent amount.
+				drawPos := *pos
+				drawPos.SetX(drawPos.X())
+				drawPos.SetY(drawPos.Y() - g.Descent)
+
+				//Add the glyph information to the vbo
+				//UV
+				gr.GlyphVBO[buffIndex+0] = g.U
+				gr.GlyphVBO[buffIndex+1] = g.V
+
+				//Color
+				gr.GlyphVBO[buffIndex+2] = color.R()
+				gr.GlyphVBO[buffIndex+3] = color.G()
+				gr.GlyphVBO[buffIndex+4] = color.B()
+				gr.GlyphVBO[buffIndex+5] = color.A()
+
+				//Model Pos
+				gr.GlyphVBO[buffIndex+6] = roundF32(drawPos.X())
+				gr.GlyphVBO[buffIndex+7] = roundF32(drawPos.Y())
+				gr.GlyphVBO[buffIndex+8] = drawPos.Z()
+
+				//Model Scale
+				gr.GlyphVBO[buffIndex+9] = scale.X()
+				gr.GlyphVBO[buffIndex+10] = scale.Y()
+
+				gr.GlyphCount++
+				pos.AddX(advanceF32)
+
+				//If we fill the buffer we issue a draw call
+				if gr.GlyphCount == MaxGlyphsPerBatch {
+					gr.Draw()
+					buffIndex = 0
+				} else {
+					buffIndex += floatsPerGlyph
+				}
+
+				prevRune = r
+			}
+
 		} else {
-			//Last character
-			g = gr.glyphFromRunes(r, prevRune, invalidRune)
+
+			for i := len(rs) - 1; i >= 0; i-- {
+
+				r := rs[i]
+				if r == '\n' {
+					screenPos.SetY(screenPos.Y() - lineHeightF32)
+					pos = screenPos.Clone()
+					prevRune = r
+					continue
+				} else if r == ' ' {
+					pos.AddX(advanceF32)
+					prevRune = r
+					continue
+				} else if r == '\t' {
+					pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
+					prevRune = r
+					continue
+				}
+
+				var g *FontAtlasGlyph
+				if i > 0 {
+					//start or middle of sentence
+					g = gr.glyphFromRunes(r, rs[i-1], prevRune)
+				} else {
+					//Last character
+					g = gr.glyphFromRunes(r, invalidRune, prevRune)
+				}
+
+				//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
+				//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
+				//So to position correctly we move them down by the descent amount.
+				drawPos := *pos
+				drawPos.SetX(drawPos.X())
+				drawPos.SetY(drawPos.Y() - g.Descent)
+
+				//Add the glyph information to the vbo
+				//UV
+				gr.GlyphVBO[buffIndex+0] = g.U
+				gr.GlyphVBO[buffIndex+1] = g.V
+
+				//Color
+				gr.GlyphVBO[buffIndex+2] = color.R()
+				gr.GlyphVBO[buffIndex+3] = color.G()
+				gr.GlyphVBO[buffIndex+4] = color.B()
+				gr.GlyphVBO[buffIndex+5] = color.A()
+
+				//Model Pos
+				gr.GlyphVBO[buffIndex+6] = roundF32(drawPos.X())
+				gr.GlyphVBO[buffIndex+7] = roundF32(drawPos.Y())
+				gr.GlyphVBO[buffIndex+8] = drawPos.Z()
+
+				//Model Scale
+				gr.GlyphVBO[buffIndex+9] = scale.X()
+				gr.GlyphVBO[buffIndex+10] = scale.Y()
+
+				gr.GlyphCount++
+				pos.AddX(advanceF32)
+
+				//If we fill the buffer we issue a draw call
+				if gr.GlyphCount == MaxGlyphsPerBatch {
+					gr.Draw()
+					buffIndex = 0
+				} else {
+					buffIndex += floatsPerGlyph
+				}
+
+				prevRune = r
+			}
+
 		}
 
-		//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
-		//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
-		//So to position correctly we move them down by the descent amount.
-		drawPos := *pos
-		drawPos.SetX(drawPos.X())
-		drawPos.SetY(drawPos.Y() - g.Descent)
-
-		//Add the glyph information to the vbo
-		//UV
-		gr.GlyphVBO[buffIndex+0] = g.U
-		gr.GlyphVBO[buffIndex+1] = g.V
-
-		//Color
-		gr.GlyphVBO[buffIndex+2] = color.R()
-		gr.GlyphVBO[buffIndex+3] = color.G()
-		gr.GlyphVBO[buffIndex+4] = color.B()
-		gr.GlyphVBO[buffIndex+5] = color.A()
-
-		//Model Pos
-		gr.GlyphVBO[buffIndex+6] = roundF32(drawPos.X())
-		gr.GlyphVBO[buffIndex+7] = roundF32(drawPos.Y())
-		gr.GlyphVBO[buffIndex+8] = drawPos.Z()
-
-		//Model Scale
-		gr.GlyphVBO[buffIndex+9] = scale.X()
-		gr.GlyphVBO[buffIndex+10] = scale.Y()
-
-		gr.GlyphCount++
-		pos.AddX(advanceF32)
-
-		//If we fill the buffer we issue a draw call
-		if gr.GlyphCount == MaxGlyphsPerBatch {
-			gr.Draw()
-			buffIndex = 0
-		} else {
-			buffIndex += floatsPerGlyph
-		}
-
-		prevRune = r
 	}
 }
 
@@ -146,7 +230,7 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 	rs := []rune(t)
 
 	if len(rs) == 0 {
-		return [][]rune{}
+		return nil
 	}
 
 	runs := make([][]rune, 0, 1)
@@ -157,7 +241,7 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 
 		r := rs[i]
 		ri := RuneInfos[r]
-		if ri.ScriptTable == currRunScript || ri.ScriptTable == unicode.Common {
+		if ri.ScriptTable == currRunScript {
 			continue
 		}
 
@@ -167,9 +251,7 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 		currRunScript = ri.ScriptTable
 	}
 
-	if runStartIndex != len(rs)-1 {
-		runs = append(runs, rs[runStartIndex:])
-	}
+	runs = append(runs, rs[runStartIndex:])
 
 	return runs
 }
@@ -202,6 +284,7 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 		ctx = PosCtx_end
 	}
 
+	//This is only needed for Arabic (I think)
 	switch ctx {
 	case PosCtx_start:
 
@@ -210,7 +293,7 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 
 			otherRune := equivRunes[i]
 			otherRuneInfo := RuneInfos[otherRune]
-			if otherRuneInfo.DecompTag == DecompTags_initial {
+			if otherRuneInfo.DecompTag == DecompTag_initial {
 				curr = otherRune
 				break
 			}
@@ -218,7 +301,29 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) *FontAtlasGlyph {
 
 	case PosCtx_mid:
 
+		equivRunes := RuneInfos[curr].EquivalentRunes
+		for i := 0; i < len(equivRunes); i++ {
+
+			otherRune := equivRunes[i]
+			otherRuneInfo := RuneInfos[otherRune]
+			if otherRuneInfo.DecompTag == DecompTag_medial {
+				curr = otherRune
+				break
+			}
+		}
+
 	case PosCtx_end:
+
+		equivRunes := RuneInfos[curr].EquivalentRunes
+		for i := 0; i < len(equivRunes); i++ {
+
+			otherRune := equivRunes[i]
+			otherRuneInfo := RuneInfos[otherRune]
+			if otherRuneInfo.DecompTag == DecompTag_final {
+				curr = otherRune
+				break
+			}
+		}
 	}
 
 	g := gr.Atlas.Glyphs[curr]
