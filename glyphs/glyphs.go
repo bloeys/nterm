@@ -137,8 +137,8 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 				gr.GlyphVBO[buffIndex+5] = color.A()
 
 				//Model Pos
-				gr.GlyphVBO[buffIndex+6] = roundF32(drawPos.X())
-				gr.GlyphVBO[buffIndex+7] = roundF32(drawPos.Y())
+				gr.GlyphVBO[buffIndex+6] = drawPos.X()
+				gr.GlyphVBO[buffIndex+7] = drawPos.Y()
 				gr.GlyphVBO[buffIndex+8] = drawPos.Z()
 
 				//Model Scale

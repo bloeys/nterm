@@ -3,6 +3,7 @@ package glyphs
 import (
 	"errors"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"math"
@@ -118,7 +119,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	//Create atlas
-	atlasSizeXF32 := float32(atlasSizeX)
+	// atlasSizeXF32 := float32(atlasSizeX)
 	atlasSizeYF32 := float32(atlasSizeY)
 	atlas := &FontAtlas{
 		Font:   f,
@@ -127,7 +128,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		Advance:    charAdv - charPaddingX,
 		LineHeight: lineHeight,
-		SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX)/atlasSizeXF32, float32(lineHeight)/atlasSizeYF32),
+		SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX), float32(lineHeight)),
+		// SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX)/atlasSizeXF32, float32(lineHeight)/atlasSizeYF32),
 	}
 
 	//Clear background to black
@@ -144,6 +146,9 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	charsOnLine := 0
 	drawer.Dot = fixed.P(atlas.Advance+charPaddingX, lineHeight)
+
+	drawHorizontalLines := true
+	drawVerticalLines := true
 	for _, g := range glyphs {
 
 		gBounds, _, _ := face.GlyphBounds(g)
@@ -152,8 +157,10 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		bearingX := absFixedI26_6(gBounds.Min.X)
 
 		atlas.Glyphs[g] = FontAtlasGlyph{
-			U: float32((drawer.Dot.X).Floor()) / atlasSizeXF32,
-			V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())) / atlasSizeYF32,
+			U: float32((drawer.Dot.X).Floor()),
+			V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())),
+			// U: float32((drawer.Dot.X).Floor()) / atlasSizeXF32,
+			// V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())) / atlasSizeYF32,
 
 			Ascent:   float32(ascent.Ceil()),
 			Descent:  float32(descent.Ceil()),
@@ -162,19 +169,47 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		//Get glyph to draw but undo any applied descent so that the glyph is drawn sitting on the line exactly.
 		//Bearing will be applied correctly but descent will be the responsibility of the positioning code
-		imgRect, mask, maskp, gAdvanceFixed, _ := face.Glyph(drawer.Dot, g)
+		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
 		if imgRect.Max.Y > drawer.Dot.Y.Ceil() {
 			diff := imgRect.Max.Y - drawer.Dot.Y.Ceil()
 			imgRect.Min.Y -= diff
 			imgRect.Max.Y -= diff
 		}
 
+		if drawVerticalLines {
+			rectCopy := imgRect
+			rectCopy.Min.Y = 0
+			rectCopy.Max.Y = drawer.Dst.Bounds().Max.Y
+			rectCopy.Max.X = rectCopy.Min.X + 1
+			oldPos := drawer.Dot
+			drawer.Dot.Y = 0
+			// fmt.Printf("Drawing with maskP %s\n", maskp.String())
+			draw.Draw(drawer.Dst, rectCopy, image.NewUniform(color.NRGBA{G: 255, A: 255}), image.Point{}, draw.Over)
+			drawer.Dot = oldPos
+		}
+
 		//Draw glyph and advance dot
 		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
-		drawer.Dot.X += fixed.I(gAdvanceFixed.Ceil()) + charPaddingXFixed
+		drawer.Dot.X += fixed.I(atlas.Advance) + charPaddingXFixed
 
 		charsOnLine++
 		if charsOnLine == charsPerLine {
+
+			if drawHorizontalLines {
+				rectCopy := imgRect
+				rectCopy.Min.X = 0
+				rectCopy.Max.X = drawer.Dst.Bounds().Max.X
+
+				// rectCopy.Min.Y += (lineHeightFixed + charPaddingYFixed).Floor() * 1
+				rectCopy.Max.Y = rectCopy.Min.Y + 1
+
+				oldPos := drawer.Dot
+				drawer.Dot.X = 0
+				draw.Draw(drawer.Dst, rectCopy, image.NewUniform(color.NRGBA{G: 255, A: 255}), image.Point{}, draw.Over)
+				drawer.Dot = oldPos
+
+				drawVerticalLines = false
+			}
 
 			charsOnLine = 0
 			drawer.Dot.X = fixed.I(atlas.Advance) + charPaddingXFixed
