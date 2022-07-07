@@ -11,8 +11,10 @@ import (
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
+	"github.com/bloeys/nterm/assert"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
+	"github.com/inkyblackness/imgui-go/v4"
 	"github.com/veandco/go-sdl2/sdl"
 	"golang.org/x/image/font"
 )
@@ -107,6 +109,7 @@ func (p *program) Init() {
 	p.handleWindowResize()
 
 	// runs := p.GlyphRend.GetTextRuns("hello there يا friend. أسمي عمر wow")
+	// runs := p.GlyphRend.GetTextRuns("hello there my friend!")
 	// fmt.Printf("%+v\n", runs)
 	// for _, r := range runs {
 	// 	fmt.Printf("%s;\n", string(r))
@@ -164,7 +167,14 @@ func (p *program) Update() {
 	if input.KeyClicked(sdl.K_SPACE) {
 		p.shouldDrawGrid = !p.shouldDrawGrid
 	}
+
+	imgui.InputText("", &textToShow)
+	if len(textToShow) > 0 {
+		assert.T(len(textToShow) == len(p.GlyphRend.GetTextRuns(textToShow)[0]), "??")
+	}
 }
+
+var textToShow = "Hello there my friend"
 
 var xOff float32 = 0
 var yOff float32 = 0
@@ -198,8 +208,10 @@ func (p *program) Render() {
 	}
 
 	textColor := gglm.NewVec4(r, g, b, 1)
+	str := textToShow
 	// str := "مرحبا بك my friend"
-	str := "  hello there يا friend. سمي عمر wow"
+	// str := "my, friend"
+	// str := "  hello there يا friend. سمي عمر wow"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 

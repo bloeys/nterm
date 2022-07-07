@@ -2,7 +2,6 @@ package glyphs
 
 import (
 	"errors"
-	"math"
 	"unicode"
 
 	"github.com/bloeys/gglm/gglm"
@@ -17,7 +16,7 @@ import (
 const (
 	MaxGlyphsPerBatch = 16384
 
-	floatsPerGlyph = 11
+	floatsPerGlyph = 13
 	invalidRune    = unicode.ReplacementChar
 )
 
@@ -69,7 +68,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	pos := screenPos.Clone()
 	advanceF32 := float32(gr.Atlas.Advance)
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-	scale := gglm.NewVec2(advanceF32, lineHeightF32)
+	// scale := gglm.NewVec2(advanceF32, lineHeightF32)
 
 	buffIndex := gr.GlyphCount * floatsPerGlyph
 
@@ -122,28 +121,37 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 				//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
 				//So to position correctly we move them down by the descent amount.
 				drawPos := *pos
-				drawPos.SetX(drawPos.X())
+				drawPos.SetX(drawPos.X() + g.BearingX)
 				drawPos.SetY(drawPos.Y() - g.Descent)
 
 				//Add the glyph information to the vbo
 				//UV
 				gr.GlyphVBO[buffIndex+0] = g.U
 				gr.GlyphVBO[buffIndex+1] = g.V
+				buffIndex += 2
+
+				//UVSize
+				gr.GlyphVBO[buffIndex+0] = g.SizeU
+				gr.GlyphVBO[buffIndex+1] = g.SizeV
+				buffIndex += 2
 
 				//Color
-				gr.GlyphVBO[buffIndex+2] = color.R()
-				gr.GlyphVBO[buffIndex+3] = color.G()
-				gr.GlyphVBO[buffIndex+4] = color.B()
-				gr.GlyphVBO[buffIndex+5] = color.A()
+				gr.GlyphVBO[buffIndex+0] = color.R()
+				gr.GlyphVBO[buffIndex+1] = color.G()
+				gr.GlyphVBO[buffIndex+2] = color.B()
+				gr.GlyphVBO[buffIndex+3] = color.A()
+				buffIndex += 4
 
 				//Model Pos
-				gr.GlyphVBO[buffIndex+6] = drawPos.X()
-				gr.GlyphVBO[buffIndex+7] = drawPos.Y()
-				gr.GlyphVBO[buffIndex+8] = drawPos.Z()
+				gr.GlyphVBO[buffIndex+0] = drawPos.X()
+				gr.GlyphVBO[buffIndex+1] = drawPos.Y()
+				gr.GlyphVBO[buffIndex+2] = drawPos.Z()
+				buffIndex += 3
 
 				//Model Scale
-				gr.GlyphVBO[buffIndex+9] = scale.X()
-				gr.GlyphVBO[buffIndex+10] = scale.Y()
+				gr.GlyphVBO[buffIndex+0] = g.SizeU
+				gr.GlyphVBO[buffIndex+1] = g.SizeV
+				buffIndex += 2
 
 				gr.GlyphCount++
 				pos.AddX(advanceF32)
@@ -152,8 +160,6 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 				if gr.GlyphCount == MaxGlyphsPerBatch {
 					gr.Draw()
 					buffIndex = 0
-				} else {
-					buffIndex += floatsPerGlyph
 				}
 
 				prevRune = r
@@ -192,28 +198,37 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 				//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
 				//So to position correctly we move them down by the descent amount.
 				drawPos := *pos
-				drawPos.SetX(drawPos.X())
+				drawPos.SetX(drawPos.X() + g.BearingX)
 				drawPos.SetY(drawPos.Y() - g.Descent)
 
 				//Add the glyph information to the vbo
 				//UV
 				gr.GlyphVBO[buffIndex+0] = g.U
 				gr.GlyphVBO[buffIndex+1] = g.V
+				buffIndex += 2
+
+				//UVSize
+				gr.GlyphVBO[buffIndex+0] = g.SizeU
+				gr.GlyphVBO[buffIndex+1] = g.SizeV
+				buffIndex += 2
 
 				//Color
-				gr.GlyphVBO[buffIndex+2] = color.R()
-				gr.GlyphVBO[buffIndex+3] = color.G()
-				gr.GlyphVBO[buffIndex+4] = color.B()
-				gr.GlyphVBO[buffIndex+5] = color.A()
+				gr.GlyphVBO[buffIndex+0] = color.R()
+				gr.GlyphVBO[buffIndex+1] = color.G()
+				gr.GlyphVBO[buffIndex+2] = color.B()
+				gr.GlyphVBO[buffIndex+3] = color.A()
+				buffIndex += 4
 
 				//Model Pos
-				gr.GlyphVBO[buffIndex+6] = roundF32(drawPos.X())
-				gr.GlyphVBO[buffIndex+7] = roundF32(drawPos.Y())
-				gr.GlyphVBO[buffIndex+8] = drawPos.Z()
+				gr.GlyphVBO[buffIndex+0] = drawPos.X()
+				gr.GlyphVBO[buffIndex+1] = drawPos.Y()
+				gr.GlyphVBO[buffIndex+2] = drawPos.Z()
+				buffIndex += 3
 
 				//Model Scale
-				gr.GlyphVBO[buffIndex+9] = scale.X()
-				gr.GlyphVBO[buffIndex+10] = scale.Y()
+				gr.GlyphVBO[buffIndex+0] = g.SizeU
+				gr.GlyphVBO[buffIndex+1] = g.SizeV
+				buffIndex += 2
 
 				gr.GlyphCount++
 				pos.AddX(advanceF32)
@@ -222,8 +237,6 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 				if gr.GlyphCount == MaxGlyphsPerBatch {
 					gr.Draw()
 					buffIndex = 0
-				} else {
-					buffIndex += floatsPerGlyph
 				}
 
 				prevRune = r
@@ -450,7 +463,7 @@ func (gr *GlyphRend) updateFontAtlasTexture() error {
 
 	//Update material
 	gr.GlyphMat.DiffuseTex = gr.AtlasTex.TexID
-	gr.GlyphMat.SetUnifVec2("sizeUV", &gr.Atlas.SizeUV)
+	// gr.GlyphMat.SetUnifVec2("sizeUV", &gr.Atlas.SizeUV)
 
 	return nil
 }
@@ -527,6 +540,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gr.InstancedBuf.SetLayout(
 		buffers.Element{ElementType: buffers.DataTypeVec2}, //UV0
+		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVSize
 		buffers.Element{ElementType: buffers.DataTypeVec4}, //Color
 		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelPos
 		buffers.Element{ElementType: buffers.DataTypeVec2}, //ModelScale
@@ -542,20 +556,25 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gl.VertexAttribPointer(1, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(uvEle.Offset))
 	gl.VertexAttribDivisor(1, 1)
 
-	colorEle := layout[1]
+	uvSize := layout[1]
 	gl.EnableVertexAttribArray(2)
-	gl.VertexAttribPointer(2, colorEle.ElementType.CompCount(), colorEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(colorEle.Offset))
+	gl.VertexAttribPointer(2, uvSize.ElementType.CompCount(), uvSize.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(uvSize.Offset))
 	gl.VertexAttribDivisor(2, 1)
 
-	posEle := layout[2]
+	colorEle := layout[2]
 	gl.EnableVertexAttribArray(3)
-	gl.VertexAttribPointer(3, posEle.ElementType.CompCount(), posEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(posEle.Offset))
+	gl.VertexAttribPointer(3, colorEle.ElementType.CompCount(), colorEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(colorEle.Offset))
 	gl.VertexAttribDivisor(3, 1)
 
-	scaleEle := layout[3]
+	posEle := layout[3]
 	gl.EnableVertexAttribArray(4)
-	gl.VertexAttribPointer(4, scaleEle.ElementType.CompCount(), scaleEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(scaleEle.Offset))
+	gl.VertexAttribPointer(4, posEle.ElementType.CompCount(), posEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(posEle.Offset))
 	gl.VertexAttribDivisor(4, 1)
+
+	scaleEle := layout[4]
+	gl.EnableVertexAttribArray(5)
+	gl.VertexAttribPointer(5, scaleEle.ElementType.CompCount(), scaleEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(scaleEle.Offset))
+	gl.VertexAttribDivisor(5, 1)
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 	gr.InstancedBuf.UnBind()
@@ -571,8 +590,4 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	}
 
 	return gr, nil
-}
-
-func roundF32(x float32) float32 {
-	return float32(math.Round(float64(x)))
 }

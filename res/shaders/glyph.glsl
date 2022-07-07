@@ -6,9 +6,10 @@ layout(location=0) in vec3 aVertPos;
 
 //Instanced
 layout(location=1) in vec2 aUV0;
-layout(location=2) in vec4 aVertColor;
-layout(location=3) in vec3 aModelPos;
-layout(location=4) in vec2 aModelScale;
+layout(location=2) in vec2 aUVSize;
+layout(location=3) in vec4 aVertColor;
+layout(location=4) in vec3 aModelPos;
+layout(location=5) in vec2 aModelScale;
 
 out vec2 v2fUV0;
 out vec4 v2fColor;
@@ -16,7 +17,6 @@ out vec3 v2fFragPos;
 
 uniform mat4 projViewMat;
 uniform vec2 modelSize;
-uniform vec2 sizeUV;
 
 void main()
 {
@@ -27,7 +27,7 @@ void main()
         aModelPos.x,    aModelPos.y,    aModelPos.z,    1.0
     );
 
-    v2fUV0 = aUV0 + aVertPos.xy * sizeUV;
+    v2fUV0 = aUV0 + aVertPos.xy * aUVSize;
     v2fColor = aVertColor;
 
     gl_Position = projViewMat * modelMat * vec4(aVertPos, 1.0);

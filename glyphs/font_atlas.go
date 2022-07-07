@@ -2,6 +2,7 @@ package glyphs
 
 import (
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"unicode"
 
-	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nterm/assert"
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
@@ -25,12 +25,13 @@ type FontAtlas struct {
 	//Advance is global to the atlas because we only support monospaced fonts
 	Advance    int
 	LineHeight int
-	SizeUV     gglm.Vec2
 }
 
 type FontAtlasGlyph struct {
-	U float32
-	V float32
+	U     float32
+	V     float32
+	SizeU float32
+	SizeV float32
 
 	Ascent   float32
 	Descent  float32
@@ -73,8 +74,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	assert.T(len(glyphs) > 0, "no glyphs")
 
 	//Find advance and line height
-	const charPaddingX = 2
-	const charPaddingY = 2
+	const charPaddingX = 4
+	const charPaddingY = 4
 	charAdvFixed, _ := face.GlyphAdvance('L')
 	charAdv := charAdvFixed.Ceil() + charPaddingX
 
@@ -120,7 +121,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	//Create atlas
 	// atlasSizeXF32 := float32(atlasSizeX)
-	atlasSizeYF32 := float32(atlasSizeY)
+	// atlasSizeYF32 := float32(atlasSizeY)
 	atlas := &FontAtlas{
 		Font:   f,
 		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
@@ -128,7 +129,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 		Advance:    charAdv - charPaddingX,
 		LineHeight: lineHeight,
-		SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX), float32(lineHeight)),
 		// SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX)/atlasSizeXF32, float32(lineHeight)/atlasSizeYF32),
 	}
 
@@ -146,70 +146,58 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	charsOnLine := 0
 	drawer.Dot = fixed.P(atlas.Advance+charPaddingX, lineHeight)
+	const drawBoundingBoxes = false
 
-	drawHorizontalLines := true
-	drawVerticalLines := true
-	for _, g := range glyphs {
+	for currGlyphCount, g := range glyphs {
 
 		gBounds, _, _ := face.GlyphBounds(g)
-		ascent := absFixedI26_6(gBounds.Min.Y)
-		descent := absFixedI26_6(gBounds.Max.Y)
-		bearingX := absFixedI26_6(gBounds.Min.X)
+		bearingX := gBounds.Min.X
+		ascentAbsFixed := absFixedI26_6(gBounds.Min.Y)
+		descentAbsFixed := absFixedI26_6(gBounds.Max.Y)
+		gWidth := gBounds.Min.X + gBounds.Max.X
+
+		gTopLeft := image.Point{
+			X: (drawer.Dot.X + bearingX).Floor(),
+			Y: (drawer.Dot.Y - ascentAbsFixed).Floor(),
+		}
+
+		gBotRight := image.Point{
+			X: (drawer.Dot.X + gWidth).Ceil(),
+			Y: (drawer.Dot.Y + descentAbsFixed).Ceil(),
+		}
 
 		atlas.Glyphs[g] = FontAtlasGlyph{
-			U: float32((drawer.Dot.X).Floor()),
-			V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())),
-			// U: float32((drawer.Dot.X).Floor()) / atlasSizeXF32,
-			// V: (atlasSizeYF32 - float32((drawer.Dot.Y).Ceil())) / atlasSizeYF32,
+			U:     float32(gTopLeft.X) - 1,
+			V:     float32(atlasSizeY - gBotRight.Y),
+			SizeU: float32(gBotRight.X - gTopLeft.X),
+			SizeV: float32(gBotRight.Y - gTopLeft.Y),
 
-			Ascent:   float32(ascent.Ceil()),
-			Descent:  float32(descent.Ceil()),
+			Ascent:   float32(ascentAbsFixed.Ceil()),
+			Descent:  float32(descentAbsFixed.Ceil()),
 			BearingX: float32(bearingX.Ceil()),
 		}
 
-		//Get glyph to draw but undo any applied descent so that the glyph is drawn sitting on the line exactly.
-		//Bearing will be applied correctly but descent will be the responsibility of the positioning code
-		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
-		if imgRect.Max.Y > drawer.Dot.Y.Ceil() {
-			diff := imgRect.Max.Y - drawer.Dot.Y.Ceil()
-			imgRect.Min.Y -= diff
-			imgRect.Max.Y -= diff
+		imgRect, mask, maskp, gAdvance, _ := face.Glyph(drawer.Dot, g)
+		if gAdvance == 0 {
+			fmt.Printf("Got advance of %s for char with code 0x%04x\n", gAdvance.String(), g)
+			continue
 		}
 
-		if drawVerticalLines {
-			rectCopy := imgRect
-			rectCopy.Min.Y = 0
-			rectCopy.Max.Y = drawer.Dst.Bounds().Max.Y
-			rectCopy.Max.X = rectCopy.Min.X + 1
-			oldPos := drawer.Dot
-			drawer.Dot.Y = 0
-			// fmt.Printf("Drawing with maskP %s\n", maskp.String())
-			draw.Draw(drawer.Dst, rectCopy, image.NewUniform(color.NRGBA{G: 255, A: 255}), image.Point{}, draw.Over)
-			drawer.Dot = oldPos
+		if drawBoundingBoxes {
+
+			rect := image.Rectangle{
+				Min: gTopLeft,
+				Max: gBotRight,
+			}
+			drawRectOutline(atlas.Img, rect, color.NRGBA{B: 255, A: 128})
 		}
 
 		//Draw glyph and advance dot
 		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
-		drawer.Dot.X += fixed.I(atlas.Advance) + charPaddingXFixed
+		drawer.Dot.X += gWidth + charPaddingXFixed
 
 		charsOnLine++
-		if charsOnLine == charsPerLine {
-
-			if drawHorizontalLines {
-				rectCopy := imgRect
-				rectCopy.Min.X = 0
-				rectCopy.Max.X = drawer.Dst.Bounds().Max.X
-
-				// rectCopy.Min.Y += (lineHeightFixed + charPaddingYFixed).Floor() * 1
-				rectCopy.Max.Y = rectCopy.Min.Y + 1
-
-				oldPos := drawer.Dot
-				drawer.Dot.X = 0
-				draw.Draw(drawer.Dst, rectCopy, image.NewUniform(color.NRGBA{G: 255, A: 255}), image.Point{}, draw.Over)
-				drawer.Dot = oldPos
-
-				drawVerticalLines = false
-			}
+		if charsOnLine == charsPerLine || currGlyphCount == len(glyphs)-1 {
 
 			charsOnLine = 0
 			drawer.Dot.X = fixed.I(atlas.Advance) + charPaddingXFixed
@@ -218,6 +206,82 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	return atlas, nil
+}
+
+func drawRectOutline(img *image.RGBA, rect image.Rectangle, color color.NRGBA) {
+
+	rowPixCount := img.Stride / 4
+
+	topLeft := img.PixOffset(rect.Min.X, rect.Min.Y)
+	botRight := img.PixOffset(rect.Max.X, rect.Max.Y)
+
+	for i := topLeft; i <= botRight; i += 4 {
+
+		pixel := i / 4
+		y := pixel / rowPixCount
+		x := pixel - y*rowPixCount
+
+		if x >= rect.Min.X && x <= rect.Max.X && y >= rect.Min.Y && y <= rect.Max.Y {
+			if x == rect.Min.X || x == rect.Max.X || y == rect.Min.Y || y == rect.Max.Y {
+				img.Pix[i+3] = color.A
+				img.Pix[i+2] = color.B
+				img.Pix[i+1] = color.G
+				img.Pix[i+0] = color.R
+			}
+		}
+	}
+}
+
+func DrawRect(img *image.RGBA, rect image.Rectangle, color color.NRGBA) {
+
+	rowPixCount := img.Stride / 4
+
+	topLeft := img.PixOffset(rect.Min.X, rect.Min.Y)
+	botRight := img.PixOffset(rect.Max.X, rect.Max.Y)
+
+	//Draw top line
+	for i := topLeft; i <= botRight; i += 4 {
+
+		pixel := i / 4
+		y := pixel / rowPixCount
+		x := pixel - y*rowPixCount
+
+		if x >= rect.Min.X && x <= rect.Max.X && y >= rect.Min.Y && y <= rect.Max.Y {
+			img.Pix[i+3] = color.A
+			img.Pix[i+2] = color.B
+			img.Pix[i+1] = color.G
+			img.Pix[i+0] = color.R
+		}
+	}
+}
+
+func DrawVerticalLine(img *image.RGBA, posX int, color color.NRGBA) {
+
+	rowLength := img.Stride
+	start := img.PixOffset(posX, 0)
+
+	for i := start; i < len(img.Pix); i += rowLength {
+
+		img.Pix[i+3] = color.A
+		img.Pix[i+2] = color.B
+		img.Pix[i+1] = color.G
+		img.Pix[i+0] = color.R
+	}
+}
+
+func DrawHorizontalLine(img *image.RGBA, posY int, color color.NRGBA) {
+
+	rowLength := img.Stride
+	start := img.PixOffset(0, posY)
+
+	//Horizontal line
+	for i := start; i < start+rowLength; i += 4 {
+
+		img.Pix[i+3] = color.A
+		img.Pix[i+2] = color.B
+		img.Pix[i+1] = color.G
+		img.Pix[i+0] = color.R
+	}
 }
 
 func SaveImgToPNG(img image.Image, file string) error {
