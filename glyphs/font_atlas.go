@@ -167,7 +167,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		}
 
 		atlas.Glyphs[g] = FontAtlasGlyph{
-			U:     float32(gTopLeft.X) - 1,
+			U:     float32(gTopLeft.X),
 			V:     float32(atlasSizeY - gBotRight.Y),
 			SizeU: float32(gBotRight.X - gTopLeft.X),
 			SizeV: float32(gBotRight.Y - gTopLeft.Y),
