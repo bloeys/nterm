@@ -165,8 +165,8 @@ func (p *program) Update() {
 
 	if imgui.Button("Print Runs") {
 		runs := p.GlyphRend.GetTextRuns(textToShow)
-		for _, r := range runs {
-			fmt.Printf("%s; runes: %#x\n\n", string(r), r)
+		for _, run := range runs {
+			fmt.Printf("%s; runes: %#x\n\n", string(run.Runes), run.Runes)
 		}
 		fmt.Printf("----------------\n")
 	}

@@ -71,44 +71,32 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 
 	bufIndex := gr.GlyphCount * floatsPerGlyph
 
-	for _, run := range runs {
+	for runIndex := 0; runIndex < len(runs); runIndex++ {
 
-		rs := run
+		run := &runs[runIndex]
 		prevRune := invalidRune
 
-		//TODO: Information on run (like bidi) should come from GetTextRuns.
-		//Default is left in case we hav a run of neutrals
-		bidiCat := BidiCategory_L
-		for _, r := range rs {
-			if !unicode.Is(unicode.Common, r) {
-				bidiCat = RuneInfos[r].BidiCat
-				break
-			}
-		}
-		isLtr := !(bidiCat == BidiCategory_R || bidiCat == BidiCategory_AL || bidiCat == BidiCategory_RLE || bidiCat == BidiCategory_RLO || bidiCat == BidiCategory_RLI || bidiCat == BidiCategory_RLM)
+		if run.IsLtr {
 
-		if isLtr {
-
-			for i := 0; i < len(rs); i++ {
-				gr.drawRune(rs, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex, isLtr)
-				prevRune = rs[i]
+			for i := 0; i < len(run.Runes); i++ {
+				gr.drawRune(run, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex)
+				prevRune = run.Runes[i]
 			}
 
 		} else {
 
-			for i := len(rs) - 1; i >= 0; i-- {
-				gr.drawRune(rs, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex, isLtr)
-				prevRune = rs[i]
+			for i := len(run.Runes) - 1; i >= 0; i-- {
+				gr.drawRune(run, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex)
+				prevRune = run.Runes[i]
 			}
 
 		}
-
 	}
 }
 
-func (gr *GlyphRend) drawRune(rs []rune, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, advanceF32, lineHeightF32 float32, bufIndex *uint32, isLtr bool) {
+func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, advanceF32, lineHeightF32 float32, bufIndex *uint32) {
 
-	r := rs[i]
+	r := run.Runes[i]
 	if r == '\n' {
 		screenPos.SetY(screenPos.Y() - lineHeightF32)
 		*pos = *screenPos.Clone()
@@ -125,10 +113,10 @@ func (gr *GlyphRend) drawRune(rs []rune, i int, prevRune rune, screenPos, pos *g
 	}
 
 	var g FontAtlasGlyph
-	if isLtr {
-		if i < len(rs)-1 {
+	if run.IsLtr {
+		if i < len(run.Runes)-1 {
 			//start or middle of sentence
-			g = gr.glyphFromRunes(r, prevRune, rs[i+1])
+			g = gr.glyphFromRunes(r, prevRune, run.Runes[i+1])
 		} else {
 			//Last character
 			g = gr.glyphFromRunes(r, prevRune, invalidRune)
@@ -136,7 +124,7 @@ func (gr *GlyphRend) drawRune(rs []rune, i int, prevRune rune, screenPos, pos *g
 	} else {
 		if i > 0 {
 			//start or middle of sentence
-			g = gr.glyphFromRunes(r, rs[i-1], prevRune)
+			g = gr.glyphFromRunes(r, run.Runes[i-1], prevRune)
 		} else {
 			//Last character
 			g = gr.glyphFromRunes(r, invalidRune, prevRune)
@@ -187,16 +175,21 @@ func (gr *GlyphRend) drawRune(rs []rune, i int, prevRune rune, screenPos, pos *g
 	}
 }
 
-func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
+type TextRun struct {
+	Runes []rune
+	IsLtr bool
+}
 
-	//PERF: Might be better to pass a [][]rune buffer to avoid allocating on the heap
+func (gr *GlyphRend) GetTextRuns(t string) []TextRun {
+
+	//PERF: Might be better to pass a []TextRun buffer to avoid allocating on the heap
 	rs := []rune(t)
 
 	if len(rs) == 0 {
 		return nil
 	}
 
-	runs := make([][]rune, 0, 10)
+	runs := make([]TextRun, 0, 10)
 	currRunScript := RuneInfos[rs[0]].ScriptTable
 
 	//TODO: We need to detect neutral characters through BiDi category, not being in common
@@ -211,10 +204,10 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 		}
 
 		//We reached a new run so count trailing neutrals to be removed from this run
-		newRun := rs[runStartIndex:i]
+		newRunRunes := rs[runStartIndex:i]
 		trailingCommonsCount := 0
-		for j := len(newRun) - 1; j >= 0; j-- {
-			if !unicode.Is(unicode.Common, newRun[j]) {
+		for j := len(newRunRunes) - 1; j >= 0; j-- {
+			if !unicode.Is(unicode.Common, newRunRunes[j]) {
 				break
 			}
 			trailingCommonsCount++
@@ -222,10 +215,11 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 
 		//If we have a run without trailing neutrals or had a run of just neutrals (e.g. starting sentence with spaces)
 		//then the full run is added, otherwise we slice the run to put neturals in a separate run
-		if trailingCommonsCount == 0 || len(newRun) == trailingCommonsCount {
-			runs = append(runs, newRun)
+		if trailingCommonsCount == 0 || len(newRunRunes) == trailingCommonsCount {
+			runs = append(runs, TextRun{Runes: newRunRunes})
 		} else {
-			runs = append(runs, newRun[:len(newRun)-trailingCommonsCount], newRun[len(newRun)-trailingCommonsCount:])
+			runs = append(runs,
+				TextRun{Runes: newRunRunes[:len(newRunRunes)-trailingCommonsCount]}, TextRun{Runes: newRunRunes[len(newRunRunes)-trailingCommonsCount:]})
 		}
 
 		//The removed neutrals are included as the start of the new run
@@ -233,7 +227,21 @@ func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 		currRunScript = ri.ScriptTable
 	}
 
-	runs = append(runs, rs[runStartIndex:])
+	runs = append(runs, TextRun{Runes: rs[runStartIndex:]})
+
+	//Detect directionality of each run
+	for i := 0; i < len(runs); i++ {
+
+		run := &runs[i]
+		bidiCat := BidiCategory_L
+		for _, r := range run.Runes {
+			if !unicode.Is(unicode.Common, r) {
+				bidiCat = RuneInfos[r].BidiCat
+				break
+			}
+		}
+		run.IsLtr = !(bidiCat == BidiCategory_R || bidiCat == BidiCategory_AL || bidiCat == BidiCategory_RLE || bidiCat == BidiCategory_RLO || bidiCat == BidiCategory_RLI || bidiCat == BidiCategory_RLM)
+	}
 
 	return runs
 }
