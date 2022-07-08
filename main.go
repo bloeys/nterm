@@ -106,13 +106,6 @@ func (p *program) Init() {
 
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	p.handleWindowResize()
-
-	// runs := p.GlyphRend.GetTextRuns("hello there يا friend. أسمي عمر wow")
-	// runs := p.GlyphRend.GetTextRuns("hello there my friend!")
-	// fmt.Printf("%+v\n", runs)
-	// for _, r := range runs {
-	// 	fmt.Printf("%s;\n", string(r))
-	// }
 }
 
 func (p *program) Update() {
@@ -167,10 +160,29 @@ func (p *program) Update() {
 		p.shouldDrawGrid = !p.shouldDrawGrid
 	}
 
+	//UI
 	imgui.InputText("", &textToShow)
+
+	if imgui.Button("Print Runs") {
+		runs := p.GlyphRend.GetTextRuns(textToShow)
+		for _, r := range runs {
+			fmt.Printf("%s; runes: %#x\n\n", string(r), r)
+		}
+		fmt.Printf("----------------\n")
+	}
+
+	if imgui.Checkbox("Draw Bounds", &isDrawingBounds) {
+
+		if isDrawingBounds {
+			p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 1)
+		} else {
+			p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 0)
+		}
+	}
 }
 
-var textToShow = " Hello there يا friend. أسمي عمر wow!"
+var isDrawingBounds = false
+var textToShow = " Hello there يا friend. اسمي عمر wow!"
 
 var xOff float32 = 0
 var yOff float32 = 0

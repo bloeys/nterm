@@ -178,15 +178,13 @@ func (gr *GlyphRend) drawRune(rs []rune, i int, prevRune rune, screenPos, pos *g
 	*bufIndex += 2
 
 	gr.GlyphCount++
-	pos.AddX(advanceF32)
+	pos.AddX(g.Advance)
 
 	//If we fill the buffer we issue a draw call
 	if gr.GlyphCount == MaxGlyphsPerBatch {
 		gr.Draw()
 		*bufIndex = 0
 	}
-
-	// prevRune = r
 }
 
 func (gr *GlyphRend) GetTextRuns(t string) [][]rune {

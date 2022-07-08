@@ -35,6 +35,7 @@ type FontAtlasGlyph struct {
 	Ascent   float32
 	Descent  float32
 	BearingX float32
+	Advance  float32
 }
 
 //NewFontAtlasFromFile reads a TTF or TTC file and produces a font texture atlas containing
@@ -149,7 +150,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	for currGlyphCount, g := range glyphs {
 
-		gBounds, _, _ := face.GlyphBounds(g)
+		gBounds, gAdvance, _ := face.GlyphBounds(g)
 		bearingX := gBounds.Min.X
 		ascentAbsFixed := absFixedI26_6(gBounds.Min.Y)
 		descentAbsFixed := absFixedI26_6(gBounds.Max.Y)
@@ -174,6 +175,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			Ascent:   float32(ascentAbsFixed.Ceil()),
 			Descent:  float32(descentAbsFixed.Ceil()),
 			BearingX: float32(bearingX.Ceil()),
+			Advance:  float32(gAdvance.Ceil()),
 		}
 
 		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
