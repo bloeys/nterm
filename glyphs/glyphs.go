@@ -68,9 +68,8 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	pos := screenPos.Clone()
 	advanceF32 := float32(gr.Atlas.Advance)
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-	// scale := gglm.NewVec2(advanceF32, lineHeightF32)
 
-	buffIndex := gr.GlyphCount * floatsPerGlyph
+	bufIndex := gr.GlyphCount * floatsPerGlyph
 
 	for _, run := range runs {
 
@@ -91,155 +90,15 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		if isLtr {
 
 			for i := 0; i < len(rs); i++ {
-
-				r := rs[i]
-				if r == '\n' {
-					screenPos.SetY(screenPos.Y() - lineHeightF32)
-					pos = screenPos.Clone()
-					prevRune = r
-					continue
-				} else if r == ' ' {
-					pos.AddX(advanceF32)
-					prevRune = r
-					continue
-				} else if r == '\t' {
-					pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
-					prevRune = r
-					continue
-				}
-
-				var g FontAtlasGlyph
-				if i < len(rs)-1 {
-					//start or middle of sentence
-					g = gr.glyphFromRunes(r, prevRune, rs[i+1])
-				} else {
-					//Last character
-					g = gr.glyphFromRunes(r, prevRune, invalidRune)
-				}
-
-				//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
-				//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
-				//So to position correctly we move them down by the descent amount.
-				drawPos := *pos
-				drawPos.SetX(drawPos.X() + g.BearingX)
-				drawPos.SetY(drawPos.Y() - g.Descent)
-
-				//Add the glyph information to the vbo
-				//UV
-				gr.GlyphVBO[buffIndex+0] = g.U
-				gr.GlyphVBO[buffIndex+1] = g.V
-				buffIndex += 2
-
-				//UVSize
-				gr.GlyphVBO[buffIndex+0] = g.SizeU
-				gr.GlyphVBO[buffIndex+1] = g.SizeV
-				buffIndex += 2
-
-				//Color
-				gr.GlyphVBO[buffIndex+0] = color.R()
-				gr.GlyphVBO[buffIndex+1] = color.G()
-				gr.GlyphVBO[buffIndex+2] = color.B()
-				gr.GlyphVBO[buffIndex+3] = color.A()
-				buffIndex += 4
-
-				//Model Pos
-				gr.GlyphVBO[buffIndex+0] = drawPos.X()
-				gr.GlyphVBO[buffIndex+1] = drawPos.Y()
-				gr.GlyphVBO[buffIndex+2] = drawPos.Z()
-				buffIndex += 3
-
-				//Model Scale
-				gr.GlyphVBO[buffIndex+0] = g.SizeU
-				gr.GlyphVBO[buffIndex+1] = g.SizeV
-				buffIndex += 2
-
-				gr.GlyphCount++
-				pos.AddX(advanceF32)
-
-				//If we fill the buffer we issue a draw call
-				if gr.GlyphCount == MaxGlyphsPerBatch {
-					gr.Draw()
-					buffIndex = 0
-				}
-
-				prevRune = r
+				gr.drawRune(rs, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex, isLtr)
+				prevRune = rs[i]
 			}
 
 		} else {
 
 			for i := len(rs) - 1; i >= 0; i-- {
-
-				r := rs[i]
-				if r == '\n' {
-					screenPos.SetY(screenPos.Y() - lineHeightF32)
-					pos = screenPos.Clone()
-					prevRune = r
-					continue
-				} else if r == ' ' {
-					pos.AddX(advanceF32)
-					prevRune = r
-					continue
-				} else if r == '\t' {
-					pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
-					prevRune = r
-					continue
-				}
-
-				var g FontAtlasGlyph
-				if i > 0 {
-					//start or middle of sentence
-					g = gr.glyphFromRunes(r, rs[i-1], prevRune)
-				} else {
-					//Last character
-					g = gr.glyphFromRunes(r, invalidRune, prevRune)
-				}
-
-				//See: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
-				//The uvs coming in make it so that glyphs are sitting on top of the baseline (no descent) and with horizontal bearing applied.
-				//So to position correctly we move them down by the descent amount.
-				drawPos := *pos
-				drawPos.SetX(drawPos.X() + g.BearingX)
-				drawPos.SetY(drawPos.Y() - g.Descent)
-
-				//Add the glyph information to the vbo
-				//UV
-				gr.GlyphVBO[buffIndex+0] = g.U
-				gr.GlyphVBO[buffIndex+1] = g.V
-				buffIndex += 2
-
-				//UVSize
-				gr.GlyphVBO[buffIndex+0] = g.SizeU
-				gr.GlyphVBO[buffIndex+1] = g.SizeV
-				buffIndex += 2
-
-				//Color
-				gr.GlyphVBO[buffIndex+0] = color.R()
-				gr.GlyphVBO[buffIndex+1] = color.G()
-				gr.GlyphVBO[buffIndex+2] = color.B()
-				gr.GlyphVBO[buffIndex+3] = color.A()
-				buffIndex += 4
-
-				//Model Pos
-				gr.GlyphVBO[buffIndex+0] = drawPos.X()
-				gr.GlyphVBO[buffIndex+1] = drawPos.Y()
-				gr.GlyphVBO[buffIndex+2] = drawPos.Z()
-				buffIndex += 3
-
-				//Model Scale
-				gr.GlyphVBO[buffIndex+0] = g.SizeU
-				gr.GlyphVBO[buffIndex+1] = g.SizeV
-				buffIndex += 2
-
-				gr.GlyphCount++
-				pos.AddX(advanceF32)
-
-				//If we fill the buffer we issue a draw call
-				if gr.GlyphCount == MaxGlyphsPerBatch {
-					gr.Draw()
-					buffIndex = 0
-				}
-
-				prevRune = r
+				gr.drawRune(rs, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex, isLtr)
+				prevRune = rs[i]
 			}
 
 		}
@@ -247,8 +106,92 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	}
 }
 
+func (gr *GlyphRend) drawRune(rs []rune, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, advanceF32, lineHeightF32 float32, bufIndex *uint32, isLtr bool) {
+
+	r := rs[i]
+	if r == '\n' {
+		screenPos.SetY(screenPos.Y() - lineHeightF32)
+		*pos = *screenPos.Clone()
+		// prevRune = r
+		return
+	} else if r == ' ' {
+		pos.AddX(advanceF32)
+		// prevRune = r
+		return
+	} else if r == '\t' {
+		pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
+		// prevRune = r
+		return
+	}
+
+	var g FontAtlasGlyph
+	if isLtr {
+		if i < len(rs)-1 {
+			//start or middle of sentence
+			g = gr.glyphFromRunes(r, prevRune, rs[i+1])
+		} else {
+			//Last character
+			g = gr.glyphFromRunes(r, prevRune, invalidRune)
+		}
+	} else {
+		if i > 0 {
+			//start or middle of sentence
+			g = gr.glyphFromRunes(r, rs[i-1], prevRune)
+		} else {
+			//Last character
+			g = gr.glyphFromRunes(r, invalidRune, prevRune)
+		}
+	}
+
+	//We must adjust char positioning according to: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
+	drawPos := *pos
+	drawPos.SetX(drawPos.X() + g.BearingX)
+	drawPos.SetY(drawPos.Y() - g.Descent)
+
+	//Add the glyph information to the vbo
+	//UV
+	gr.GlyphVBO[*bufIndex+0] = g.U
+	gr.GlyphVBO[*bufIndex+1] = g.V
+	*bufIndex += 2
+
+	//UVSize
+	gr.GlyphVBO[*bufIndex+0] = g.SizeU
+	gr.GlyphVBO[*bufIndex+1] = g.SizeV
+	*bufIndex += 2
+
+	//Color
+	gr.GlyphVBO[*bufIndex+0] = color.R()
+	gr.GlyphVBO[*bufIndex+1] = color.G()
+	gr.GlyphVBO[*bufIndex+2] = color.B()
+	gr.GlyphVBO[*bufIndex+3] = color.A()
+	*bufIndex += 4
+
+	//Model Pos
+	gr.GlyphVBO[*bufIndex+0] = drawPos.X()
+	gr.GlyphVBO[*bufIndex+1] = drawPos.Y()
+	gr.GlyphVBO[*bufIndex+2] = drawPos.Z()
+	*bufIndex += 3
+
+	//Model Scale
+	gr.GlyphVBO[*bufIndex+0] = g.SizeU
+	gr.GlyphVBO[*bufIndex+1] = g.SizeV
+	*bufIndex += 2
+
+	gr.GlyphCount++
+	pos.AddX(advanceF32)
+
+	//If we fill the buffer we issue a draw call
+	if gr.GlyphCount == MaxGlyphsPerBatch {
+		gr.Draw()
+		*bufIndex = 0
+	}
+
+	// prevRune = r
+}
+
 func (gr *GlyphRend) GetTextRuns(t string) [][]rune {
 
+	//PERF: Might be better to pass a [][]rune buffer to avoid allocating on the heap
 	rs := []rune(t)
 
 	if len(rs) == 0 {
@@ -405,7 +348,10 @@ func (gr *GlyphRend) Draw() {
 	gr.InstancedBuf.Bind()
 	gr.GlyphMat.Bind()
 
+	//We need to disable depth testing so that nearby characters don't occlude each other
+	gl.Disable(gl.DEPTH_TEST)
 	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), int32(gr.GlyphCount))
+	gl.Enable(gl.DEPTH_TEST)
 	gr.GlyphCount = 0
 }
 

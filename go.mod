@@ -7,11 +7,9 @@ require (
 	github.com/bloeys/nmage v0.12.13
 	github.com/go-gl/gl v0.0.0-20211025173605-bda47ffaa784
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
+	github.com/inkyblackness/imgui-go/v4 v4.3.0
 	github.com/veandco/go-sdl2 v0.4.10
 	golang.org/x/image v0.0.0-20220617043117-41969df76e82
 )
 
-require (
-	github.com/bloeys/assimp-go v0.4.2 // indirect
-	github.com/inkyblackness/imgui-go/v4 v4.3.0 // indirect
-)
+require github.com/bloeys/assimp-go v0.4.2 // indirect

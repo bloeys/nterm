@@ -46,7 +46,7 @@ uniform sampler2D diffTex;
 void main()
 {
     vec4 texColor = texelFetch(diffTex, ivec2(v2fUV0), 0);
-    // vec4 texColor = texture(diffTex, v2fUV0);
+    // This commented out part highlights the full region of the char
     // if (texColor.r == 0)
     // {
     //     fragColor = vec4(0,1,0,0.25);

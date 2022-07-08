@@ -11,7 +11,6 @@ import (
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
-	"github.com/bloeys/nterm/assert"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
 	"github.com/inkyblackness/imgui-go/v4"
@@ -60,7 +59,7 @@ func main() {
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
 
-		FontSize: 20,
+		FontSize: 14,
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, func(e sdl.Event) {
@@ -92,7 +91,7 @@ func (p *program) Init() {
 	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
 
 	w, h := p.win.SDLWin.GetSize()
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/Consolas.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/KawkabMono-Regular.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
@@ -169,12 +168,9 @@ func (p *program) Update() {
 	}
 
 	imgui.InputText("", &textToShow)
-	if len(textToShow) > 0 {
-		assert.T(len(textToShow) == len(p.GlyphRend.GetTextRuns(textToShow)[0]), "??")
-	}
 }
 
-var textToShow = "Hello there my friend"
+var textToShow = " Hello there يا friend. أسمي عمر wow!"
 
 var xOff float32 = 0
 var yOff float32 = 0
@@ -211,7 +207,7 @@ func (p *program) Render() {
 	str := textToShow
 	// str := "مرحبا بك my friend"
 	// str := "my, friend"
-	// str := "  hello there يا friend. سمي عمر wow"
+	// str := " hello there يا friend. أسمي عمر wow"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
 	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
 

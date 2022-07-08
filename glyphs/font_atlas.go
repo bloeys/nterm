@@ -2,7 +2,6 @@ package glyphs
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -146,7 +145,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	charsOnLine := 0
 	drawer.Dot = fixed.P(atlas.Advance+charPaddingX, lineHeight)
-	const drawBoundingBoxes = false
+	const drawBoundingBoxes bool = false
 
 	for currGlyphCount, g := range glyphs {
 
@@ -177,11 +176,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			BearingX: float32(bearingX.Ceil()),
 		}
 
-		imgRect, mask, maskp, gAdvance, _ := face.Glyph(drawer.Dot, g)
-		if gAdvance == 0 {
-			fmt.Printf("Got advance of %s for char with code 0x%04x\n", gAdvance.String(), g)
-			continue
-		}
+		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
 
 		if drawBoundingBoxes {
 
