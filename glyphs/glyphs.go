@@ -31,6 +31,7 @@ type GlyphRend struct {
 	GlyphMesh    *meshes.Mesh
 	InstancedBuf buffers.Buffer
 	GlyphMat     *materials.Material
+	TextRunsBuf  []TextRun
 
 	GlyphCount uint32
 	//NOTE: Because of the sad realities (bugs?) of CGO, passing an array in a struct
@@ -60,7 +61,8 @@ func (gr *GlyphRend) DrawTextOpenGL01(text string, screenPos *gglm.Vec3, color *
 //Color is RGBA in the range [0,1].
 func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
 
-	runs := gr.GetTextRuns(text)
+	runs := gr.TextRunsBuf[:]
+	gr.GetTextRuns(text, &runs)
 	if runs == nil {
 		return
 	}
@@ -180,19 +182,20 @@ type TextRun struct {
 	IsLtr bool
 }
 
-func (gr *GlyphRend) GetTextRuns(t string) []TextRun {
+func (gr *GlyphRend) GetTextRuns(t string, textRunsBuf *[]TextRun) {
 
-	//PERF: Might be better to pass a []TextRun buffer to avoid allocating on the heap
-	rs := []rune(t)
-
-	if len(rs) == 0 {
-		return nil
+	if len(t) == 0 {
+		return
 	}
 
-	runs := make([]TextRun, 0, 10)
+	rs := []rune(t)
+
+	runs := textRunsBuf
 	currRunScript := RuneInfos[rs[0]].ScriptTable
 
 	//TODO: We need to detect neutral characters through BiDi category, not being in common
+	//TODO: Diacritics go into things like 'Category_Mn' and don't necessairly follow the parent script (e.g. Arabic diacritics are NOT in unicode.Arabic).
+	//They should be part of the same run but right now we split them into their own run.
 	runStartIndex := 0
 	for i := 1; i < len(rs); i++ {
 
@@ -216,9 +219,9 @@ func (gr *GlyphRend) GetTextRuns(t string) []TextRun {
 		//If we have a run without trailing neutrals or had a run of just neutrals (e.g. starting sentence with spaces)
 		//then the full run is added, otherwise we slice the run to put neturals in a separate run
 		if trailingCommonsCount == 0 || len(newRunRunes) == trailingCommonsCount {
-			runs = append(runs, TextRun{Runes: newRunRunes})
+			*runs = append(*runs, TextRun{Runes: newRunRunes})
 		} else {
-			runs = append(runs,
+			*runs = append(*runs,
 				TextRun{Runes: newRunRunes[:len(newRunRunes)-trailingCommonsCount]}, TextRun{Runes: newRunRunes[len(newRunRunes)-trailingCommonsCount:]})
 		}
 
@@ -227,12 +230,12 @@ func (gr *GlyphRend) GetTextRuns(t string) []TextRun {
 		currRunScript = ri.ScriptTable
 	}
 
-	runs = append(runs, TextRun{Runes: rs[runStartIndex:]})
+	*runs = append(*runs, TextRun{Runes: rs[runStartIndex:]})
 
 	//Detect directionality of each run
-	for i := 0; i < len(runs); i++ {
+	for i := 0; i < len(*runs); i++ {
 
-		run := &runs[i]
+		run := &(*runs)[i]
 		bidiCat := BidiCategory_L
 		for _, r := range run.Runes {
 			if !unicode.Is(unicode.Common, r) {
@@ -242,12 +245,12 @@ func (gr *GlyphRend) GetTextRuns(t string) []TextRun {
 		}
 		run.IsLtr = !(bidiCat == BidiCategory_R || bidiCat == BidiCategory_AL || bidiCat == BidiCategory_RLE || bidiCat == BidiCategory_RLO || bidiCat == BidiCategory_RLI || bidiCat == BidiCategory_RLM)
 	}
-
-	return runs
 }
 
 func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) FontAtlasGlyph {
 
+	//PERF: Map access times are absolute garbage to the point that ~85%+ of the runtime of this func
+	//is spent reading from maps :). Using nSet or fMap or similar would be a lot better.
 	type PosCtx int
 	const (
 		PosCtx_start PosCtx = iota
@@ -438,6 +441,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr := &GlyphRend{
 		GlyphCount:   0,
 		GlyphVBO:     make([]float32, floatsPerGlyph*MaxGlyphsPerBatch),
+		TextRunsBuf:  make([]TextRun, 0, 20),
 		SpacesPerTab: 4,
 	}
 

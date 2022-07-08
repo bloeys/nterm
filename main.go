@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
+	"os"
+	"runtime/pprof"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/engine"
@@ -10,6 +13,7 @@ import (
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nmage/renderer/rend3dgl"
+	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
@@ -74,12 +78,11 @@ func main() {
 	//Don't flash white
 	p.win.SDLWin.GLSwap()
 
-	// var pf, _ = os.Create("pprof.cpu")
-	// defer pf.Close()
-
-	// pprof.StartCPUProfile(pf)
+	var pf, _ = os.Create("pprof.cpu")
+	defer pf.Close()
+	pprof.StartCPUProfile(pf)
 	engine.Run(p, p.win, p.imguiInfo)
-	// pprof.StopCPUProfile()
+	pprof.StopCPUProfile()
 }
 
 func (p *program) Init() {
@@ -164,7 +167,8 @@ func (p *program) Update() {
 	imgui.InputText("", &textToShow)
 
 	if imgui.Button("Print Runs") {
-		runs := p.GlyphRend.GetTextRuns(textToShow)
+		runs := make([]glyphs.TextRun, 0, 20)
+		p.GlyphRend.GetTextRuns(textToShow, &runs)
 		for _, run := range runs {
 			fmt.Printf("%s; runes: %#x\n\n", string(run.Runes), run.Runes)
 		}
@@ -179,9 +183,12 @@ func (p *program) Update() {
 			p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 0)
 		}
 	}
+
+	imgui.Checkbox("Draw many", &drawManyLines)
 }
 
 var isDrawingBounds = false
+var drawManyLines = false
 var textToShow = " Hello there يا friend. اسمي عمر wow!"
 
 var xOff float32 = 0
@@ -215,23 +222,22 @@ func (p *program) Render() {
 		b = 0
 	}
 
-	textColor := gglm.NewVec4(r, g, b, 1)
 	str := textToShow
-	// str := "مرحبا بك my friend"
-	// str := "my, friend"
-	// str := " hello there يا friend. أسمي عمر wow"
-	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ\nمرحبا بك"
-	// str := " ijojo\n\n Hello there, friend|. pq?\n ABCDEFG\tHIJKLMNOPQRSTUVWXYZ"
+	charCount := len([]rune(str))
+	fps := int(timing.GetAvgFPS())
+	textColor := gglm.NewVec4(r, g, b, 1)
+	if drawManyLines {
 
-	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
-
-	// strLen := len(str)
-	// const charsPerFrame = 100_000
-	// for i := 0; i < charsPerFrame/strLen; i++ {
-	// 	p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*8+yOff, 0), textColor)
-	// }
-	// fps := int(timing.GetAvgFPS())
-	// p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
+		const charsPerFrame = 500_000
+		for i := 0; i < charsPerFrame/charCount; i++ {
+			p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+		}
+		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
+	} else {
+		charsPerFrame := float64(charCount)
+		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*int(charsPerFrame)))
+	}
 
 }
 
