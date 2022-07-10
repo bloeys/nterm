@@ -110,10 +110,10 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 		*pos = *screenPos.Clone()
 		return
 	} else if r == ' ' {
-		pos.AddX(gr.Atlas.Advance)
+		pos.AddX(gr.Atlas.SpaceAdvance)
 		return
 	} else if r == '\t' {
-		pos.AddX(gr.Atlas.Advance * float32(gr.SpacesPerTab))
+		pos.AddX(gr.Atlas.SpaceAdvance * float32(gr.SpacesPerTab))
 		return
 	}
 
@@ -188,9 +188,9 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 	}
 }
 
-// func roundF32(x float32) float32 {
-// 	return float32(math.Round(float64(x)))
-// }
+func roundF32(x float32) float32 {
+	return float32(math.Round(float64(x)))
+}
 
 // func ceilF32(x float32) float32 {
 // 	return float32(math.Ceil(float64(x)))

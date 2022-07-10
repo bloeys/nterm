@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
-	"math"
 	"os"
 	"unicode"
 
@@ -23,13 +22,13 @@ type FontAtlas struct {
 	Img    *image.RGBA
 	Glyphs map[rune]FontAtlasGlyph
 
-	//Advance is global to the atlas because we only support monospaced fonts
-	Advance    float32
-	LineHeight float32
+	//SpaceAdvance is global to the atlas because we only support monospaced fonts
+	SpaceAdvance float32
+	LineHeight   float32
 }
 
 type FontAtlasGlyph struct {
-	R     rune
+	Rune  rune
 	U     float32
 	V     float32
 	SizeU float32
@@ -63,6 +62,61 @@ func NewFontAtlasFromFile(fontFile string, fontOptions *truetype.Options) (*Font
 	return NewFontAtlasFromFont(f, face, uint(fontOptions.Size))
 }
 
+func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charPaddingYFixed fixed.Int26_6) (atlasSizeX, atlasSizeY int) {
+
+	//Calculate needed atlas size
+	atlasSizeX = 512
+	atlasSizeY = 512
+	lineHeight := face.Metrics().Height
+	foundAtlasSize := false
+	for !foundAtlasSize {
+
+		foundAtlasSize = true
+		dotX := charPaddingXFixed
+		dotY := lineHeight
+		atlasSizeXFixed := fixed.I(atlasSizeX)
+		atlasSizeYFixed := fixed.I(atlasSizeY)
+		for i := 0; i < len(glyphs); i++ {
+
+			//Prepare all glyph metrics
+			g := glyphs[i]
+			gBounds, _, _ := face.GlyphBounds(g)
+			bearingXFixed := gBounds.Min.X
+			gWidthFixed := gBounds.Max.X - gBounds.Min.X
+			// descent := gBounds.Max.Y
+
+			// Calculate distance dot will move after drawing. Advance normally if line has space,
+			// otherwise go to next line and reset X position.
+			distToMoveX := bearingXFixed + gWidthFixed + charPaddingXFixed
+
+			//If bearing is negative this char might overlap with the previous one.
+			//So we need to move the dot so the drawer won't overlap even after a negative offset
+			if bearingXFixed < 0 {
+				distToMoveX += absI26_6(bearingXFixed)
+			}
+
+			//If we hav eno more space go to next line
+			if dotX+distToMoveX >= atlasSizeXFixed {
+
+				dotX = distToMoveX
+				dotY += lineHeight + charPaddingYFixed
+
+				//If we have only one more empty line then resize to be safe against descents being clipped
+				if dotY+lineHeight >= atlasSizeYFixed {
+					atlasSizeX *= 2
+					atlasSizeY *= 2
+					foundAtlasSize = false
+					break
+				}
+			} else {
+				dotX += distToMoveX
+			}
+		}
+	}
+
+	return atlasSizeX, atlasSizeY
+}
+
 //NewFontAtlasFromFile uses the passed font to produce a font texture atlas containing
 //all its characters using the specified options. The atlas uses equally sized tiles
 //such that all characters use an equal horizontal/vertical on the atlas.
@@ -71,66 +125,31 @@ func NewFontAtlasFromFile(fontFile string, fontOptions *truetype.Options) (*Font
 //Only monospaced fonts are supported.
 func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*FontAtlas, error) {
 
+	// Vertical padding must be a bit larger because low descent on one line
+	// and high ascent on the next might cause overlapping chars
+	const charPaddingXFixed = 4 << 6
+	const charPaddingYFixed = 4 << 6
 	const maxAtlasSize = 8192
 
 	glyphs := getGlyphsFromRuneRanges(getGlyphRangesFromFont(f))
 	assert.T(len(glyphs) > 0, "no glyphs")
 
-	//Find advance and line height
-	const charPaddingX = 4
-	const charPaddingY = 4
-	charAdvFixed, _ := face.GlyphAdvance('L')
-	charAdv := charAdvFixed.Ceil() + charPaddingX
-
-	//Find largest vertical character.
-	//We don't use face.Metrics().Height because its not reliable
-	lineHeightFixed := fixed.Int26_6(0)
-	for _, g := range glyphs {
-
-		gBounds, _, _ := face.GlyphBounds(g)
-		ascent := absI26_6(gBounds.Min.Y)
-		descent := absI26_6(gBounds.Max.Y)
-
-		charHeight := ascent + descent
-		if charHeight > lineHeightFixed {
-			lineHeightFixed = charHeight
-		}
-	}
-	lineHeightFixed = fixed.I(lineHeightFixed.Ceil())
-	lineHeight := lineHeightFixed.Ceil()
-
-	//Calculate needed atlas size
-	atlasSizeX := 128
-	atlasSizeY := 128
-
-	maxLinesInAtlas := atlasSizeY/lineHeight - 2
-	charsPerLine := atlasSizeX/charAdv - 1
-	linesNeeded := int(math.Ceil(float64(len(glyphs))/float64(charsPerLine))) + 1
-
-	for linesNeeded > maxLinesInAtlas {
-
-		atlasSizeX *= 2
-		atlasSizeY *= 2
-
-		maxLinesInAtlas = atlasSizeY/lineHeight - 2
-
-		charsPerLine = atlasSizeX/charAdv - 1
-		linesNeeded = int(math.Ceil(float64(len(glyphs))/float64(charsPerLine))) + 1
-	}
-
+	atlasSizeX, atlasSizeY := calcNeededAtlasSize(glyphs, face, charPaddingXFixed, charPaddingYFixed)
 	if atlasSizeX > maxAtlasSize {
 		return nil, errors.New("atlas size went beyond the maximum of 8192*8192")
 	}
 
 	//Create atlas
+	lineHeight := face.Metrics().Height
+	spaceAdv, _ := face.GlyphAdvance(' ')
 	atlas := &FontAtlas{
 		Font:   f,
 		Face:   face,
 		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
 		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
 
-		Advance:    float32(charAdv - charPaddingX),
-		LineHeight: float32(lineHeight),
+		SpaceAdvance: I26_6ToF32(spaceAdv),
+		LineHeight:   I26_6ToF32(lineHeight),
 	}
 
 	//Clear background to black
@@ -142,27 +161,46 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	//Put glyphs on atlas
-	charPaddingXFixed := fixed.I(charPaddingX)
-	charPaddingYFixed := fixed.I(charPaddingY)
-
-	charsOnLine := 0
-	drawer.Dot = fixed.P(int(atlas.Advance+charPaddingX), lineHeight)
+	drawer.Dot = fixed.P(int(atlas.SpaceAdvance), 0)
+	drawer.Dot.X += charPaddingXFixed
+	drawer.Dot.Y = lineHeight
 
 	const drawBoundingBoxes bool = false
-	for currGlyphCount, g := range glyphs {
+	atlasSizeXFixed := fixed.I(atlasSizeX)
+	// atlasSizeYFixed := fixed.I(atlasSizeY)
+	for _, g := range glyphs {
 
+		//Glyph metrics
 		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
 		bearingXFixed := gBounds.Min.X
 		ascentAbsFixed := absI26_6(gBounds.Min.Y)
 		descentAbsFixed := absI26_6(gBounds.Max.Y)
 		gWidthFixed := gBounds.Max.X - gBounds.Min.X
 
-		//If bearing is neagtive this char might overlap with the previous one.
+		//If bearing is negative this char might overlap with the previous one.
 		//So we need to move the dot so the drawer won't overlap even after a negative offset
 		if bearingXFixed < 0 {
 			drawer.Dot.X += absI26_6(bearingXFixed)
 		}
 
+		// Position dot by calculating how much it will move after drawing, and if there isn't enough space
+		// move to next line then draw
+		nextDotPosDeltaX := bearingXFixed + gWidthFixed + charPaddingXFixed
+		if drawer.Dot.X+nextDotPosDeltaX >= atlasSizeXFixed {
+
+			drawer.Dot.X = charPaddingXFixed
+			if bearingXFixed < 0 {
+				drawer.Dot.X += absI26_6(bearingXFixed)
+			}
+
+			drawer.Dot.Y += lineHeight + charPaddingYFixed
+
+			// assert.T(drawer.Dot.Y+largestLineDescent+lineHeight < atlasSizeYFixed, "Failed to create atlas because it did not fit")
+		}
+
+		drawer.Dot = fixed.P(drawer.Dot.X.Floor(), drawer.Dot.Y.Floor())
+
+		//Build and insert glyph struct
 		gTopLeft := image.Point{
 			X: (drawer.Dot.X + bearingXFixed).Floor(),
 			Y: (drawer.Dot.Y - ascentAbsFixed).Floor(),
@@ -174,7 +212,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		}
 
 		atlas.Glyphs[g] = FontAtlasGlyph{
-			R:     g,
+			Rune:  g,
 			U:     float32(gTopLeft.X),
 			V:     float32(atlasSizeY - gBotRight.Y),
 			SizeU: float32(gBotRight.X - gTopLeft.X),
@@ -187,7 +225,6 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		}
 
 		if consts.Mode_Debug && drawBoundingBoxes {
-
 			rect := image.Rectangle{
 				Min: gTopLeft,
 				Max: gBotRight,
@@ -195,19 +232,10 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			drawRectOutline(atlas.Img, rect, color.NRGBA{B: 255, A: 128})
 		}
 
-		//Draw glyph and advance dot
+		//Draw glyph
 		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
 		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
-
-		drawer.Dot.X += bearingXFixed + gWidthFixed + charPaddingXFixed
-
-		charsOnLine++
-		if charsOnLine == charsPerLine || currGlyphCount == len(glyphs)-1 {
-
-			charsOnLine = 0
-			drawer.Dot.X = fixed.I(int(atlas.Advance)) + charPaddingXFixed
-			drawer.Dot.Y += lineHeightFixed + charPaddingYFixed
-		}
+		drawer.Dot.X += nextDotPosDeltaX
 	}
 
 	// // This is a test section that uses the drawer to draw an Arabic
