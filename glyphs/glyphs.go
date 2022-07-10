@@ -11,6 +11,7 @@ import (
 	"github.com/bloeys/nmage/buffers"
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
+	"github.com/bloeys/nterm/consts"
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/golang/freetype/truetype"
 )
@@ -120,29 +121,29 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 	if run.IsLtr {
 		if i < len(run.Runes)-1 {
 			//start or middle of sentence
-			g = gr.glyphFromRunes(r, prevRune, run.Runes[i+1])
+			g = GlyphFromRunes(gr.Atlas.Glyphs, r, prevRune, run.Runes[i+1])
 		} else {
 			//Last character
-			g = gr.glyphFromRunes(r, prevRune, invalidRune)
+			g = GlyphFromRunes(gr.Atlas.Glyphs, r, prevRune, invalidRune)
 		}
 	} else {
 		if i > 0 {
 			//start or middle of sentence
-			g = gr.glyphFromRunes(r, run.Runes[i-1], prevRune)
+			g = GlyphFromRunes(gr.Atlas.Glyphs, r, run.Runes[i-1], prevRune)
 		} else {
 			//Last character
-			g = gr.glyphFromRunes(r, invalidRune, prevRune)
+			g = GlyphFromRunes(gr.Atlas.Glyphs, r, invalidRune, prevRune)
 		}
 	}
 
 	//We must adjust char positioning according to: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 	drawPos := *pos
 	//The flooring to an integer pixel must happen AFTER the (potentially) fractional adjustments have been made.
-	//This is what the truetype face.Rasterizer does and seems to give good results
+	//This is what the truetype face.Rasterizer does and seems to give good results. Do NOT floor bearing/descent first.
 	drawPos.SetX(floorF32(drawPos.X() + g.BearingX))
 	drawPos.SetY(floorF32(drawPos.Y() - g.Descent))
 
-	if PrintPositions {
+	if consts.Mode_Debug && PrintPositions {
 		oldXY := gglm.NewVec2(pos.X(), pos.Y())
 		newXY := gglm.NewVec2(drawPos.X(), drawPos.Y())
 		fmt.Printf("char=%s; PosBefore=%s, PosAfter=%s; Bearing/Decent=(%f, %f)\n", string(r), oldXY.String(), newXY.String(), g.BearingX, g.Descent)
@@ -177,24 +178,23 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 	gr.GlyphVBO[*bufIndex+1] = g.SizeV
 	*bufIndex += 2
 
-	gr.GlyphCount++
-	pos.AddX(gr.Atlas.Advance)
-	// pos.AddX(g.Advance)
+	pos.AddX(g.Advance)
 
 	//If we fill the buffer we issue a draw call
+	gr.GlyphCount++
 	if gr.GlyphCount == MaxGlyphsPerBatch {
 		gr.Draw()
 		*bufIndex = 0
 	}
 }
 
-func roundF32(x float32) float32 {
-	return float32(math.Round(float64(x)))
-}
+// func roundF32(x float32) float32 {
+// 	return float32(math.Round(float64(x)))
+// }
 
-func ceilF32(x float32) float32 {
-	return float32(math.Ceil(float64(x)))
-}
+// func ceilF32(x float32) float32 {
+// 	return float32(math.Ceil(float64(x)))
+// }
 
 func floorF32(x float32) float32 {
 	return float32(math.Floor(float64(x)))
@@ -270,7 +270,7 @@ func (gr *GlyphRend) GetTextRuns(t string, textRunsBuf *[]TextRun) {
 	}
 }
 
-func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) FontAtlasGlyph {
+func GlyphFromRunes(glyphTable map[rune]FontAtlasGlyph, curr, prev, next rune) FontAtlasGlyph {
 
 	//PERF: Map access times are absolute garbage to the point that ~85%+ of the runtime of this func
 	//is spent reading from maps :). Using nSet or fMap or similar would be a lot better.
@@ -287,7 +287,7 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) FontAtlasGlyph {
 
 	//Isolated case
 	if !prevIsValid && !nextIsValid {
-		g := gr.Atlas.Glyphs[curr]
+		g := glyphTable[curr]
 		return g
 	}
 
@@ -366,8 +366,7 @@ func (gr *GlyphRend) glyphFromRunes(curr, prev, next rune) FontAtlasGlyph {
 		// }
 	}
 
-	g := gr.Atlas.Glyphs[curr]
-	return g
+	return glyphTable[curr]
 }
 
 func (gr *GlyphRend) Draw() {
@@ -461,6 +460,14 @@ func (gr *GlyphRend) SetScreenSize(screenWidth, screenHeight int32) {
 
 func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, screenHeight int32) (*GlyphRend, error) {
 
+	var err error
+	if RuneInfos == nil {
+		RuneInfos, err = ParseUnicodeData("./unicode-data-13.txt", "./arabic-shaping-13.txt")
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	gr := &GlyphRend{
 		GlyphCount:   0,
 		GlyphVBO:     make([]float32, floatsPerGlyph*MaxGlyphsPerBatch),
@@ -495,7 +502,6 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.GlyphMat = materials.NewMaterial("glyphMat", "./res/shaders/glyph.glsl")
 
 	//With the material ready we can generate the atlas
-	var err error
 	gr.Atlas, err = NewFontAtlasFromFile(fontFile, fontOptions)
 	if err != nil {
 		return nil, err
@@ -562,11 +568,6 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gr.GlyphMesh.Buf.SetLayout(buffers.Element{ElementType: buffers.DataTypeVec3})
 
 	gr.SetScreenSize(screenWidth, screenHeight)
-
-	RuneInfos, err = ParseUnicodeData("./unicode-data-13.txt", "./arabic-shaping-13.txt")
-	if err != nil {
-		return nil, err
-	}
 
 	return gr, nil
 }

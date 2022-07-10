@@ -19,6 +19,7 @@ import (
 
 type FontAtlas struct {
 	Font   *truetype.Font
+	Face   font.Face
 	Img    *image.RGBA
 	Glyphs map[rune]FontAtlasGlyph
 
@@ -28,6 +29,7 @@ type FontAtlas struct {
 }
 
 type FontAtlasGlyph struct {
+	R     rune
 	U     float32
 	V     float32
 	SizeU float32
@@ -123,6 +125,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	//Create atlas
 	atlas := &FontAtlas{
 		Font:   f,
+		Face:   face,
 		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
 		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
 
@@ -145,7 +148,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	charsOnLine := 0
 	drawer.Dot = fixed.P(int(atlas.Advance+charPaddingX), lineHeight)
 
-	const drawBoundingBoxes bool = true
+	const drawBoundingBoxes bool = false
 	for currGlyphCount, g := range glyphs {
 
 		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
@@ -171,6 +174,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		}
 
 		atlas.Glyphs[g] = FontAtlasGlyph{
+			R:     g,
 			U:     float32(gTopLeft.X),
 			V:     float32(atlasSizeY - gBotRight.Y),
 			SizeU: float32(gBotRight.X - gTopLeft.X),
@@ -205,6 +209,27 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			drawer.Dot.Y += lineHeightFixed + charPaddingYFixed
 		}
 	}
+
+	// // This is a test section that uses the drawer to draw an Arabic
+	// // string at the bottom of the atlas. Useful to compare glyph renderer against a 'correct' implementation
+	// str := "السلام عليكم"
+	// rs := []rune(str)
+	// finalR := make([]rune, 0)
+	// prevRune := invalidRune
+	// for i := len(rs) - 1; i >= 0; i-- {
+	// 	var g FontAtlasGlyph
+	// 	if i > 0 {
+	// 		//start or middle of sentence
+	// 		g = GlyphFromRunes(atlas.Glyphs, rs[i], rs[i-1], prevRune)
+	// 	} else {
+	// 		//Last character
+	// 		g = GlyphFromRunes(atlas.Glyphs, rs[i], invalidRune, prevRune)
+	// 	}
+	// 	prevRune = rs[i]
+	// 	finalR = append(finalR, g.R)
+	// }
+	// drawer.Dot.Y += lineHeightFixed + charPaddingYFixed
+	// drawer.DrawString(string(finalR))
 
 	return atlas, nil
 }
