@@ -92,6 +92,10 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 			}
 
 		}
+
+		if PrintPositions {
+			println("")
+		}
 	}
 }
 

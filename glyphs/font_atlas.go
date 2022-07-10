@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/bloeys/nterm/assert"
+	"github.com/bloeys/nterm/consts"
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -85,8 +86,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	for _, g := range glyphs {
 
 		gBounds, _, _ := face.GlyphBounds(g)
-		ascent := absFixedI26_6(gBounds.Min.Y)
-		descent := absFixedI26_6(gBounds.Max.Y)
+		ascent := absI26_6(gBounds.Min.Y)
+		descent := absI26_6(gBounds.Max.Y)
 
 		charHeight := ascent + descent
 		if charHeight > lineHeightFixed {
@@ -144,22 +145,28 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	charsOnLine := 0
 	drawer.Dot = fixed.P(int(atlas.Advance+charPaddingX), lineHeight)
 
-	const drawBoundingBoxes bool = false
+	const drawBoundingBoxes bool = true
 	for currGlyphCount, g := range glyphs {
 
-		gBounds, gAdvance, _ := face.GlyphBounds(g)
-		bearingX := gBounds.Min.X
-		ascentAbsFixed := absFixedI26_6(gBounds.Min.Y)
-		descentAbsFixed := absFixedI26_6(gBounds.Max.Y)
-		gWidth := gBounds.Min.X + gBounds.Max.X
+		gBounds, gAdvanceFixed, _ := face.GlyphBounds(g)
+		bearingXFixed := gBounds.Min.X
+		ascentAbsFixed := absI26_6(gBounds.Min.Y)
+		descentAbsFixed := absI26_6(gBounds.Max.Y)
+		gWidthFixed := gBounds.Max.X - gBounds.Min.X
+
+		//If bearing is neagtive this char might overlap with the previous one.
+		//So we need to move the dot so the drawer won't overlap even after a negative offset
+		if bearingXFixed < 0 {
+			drawer.Dot.X += absI26_6(bearingXFixed)
+		}
 
 		gTopLeft := image.Point{
-			X: (drawer.Dot.X + bearingX).Floor(),
+			X: (drawer.Dot.X + bearingXFixed).Floor(),
 			Y: (drawer.Dot.Y - ascentAbsFixed).Floor(),
 		}
 
 		gBotRight := image.Point{
-			X: (drawer.Dot.X + gWidth).Ceil(),
+			X: (drawer.Dot.X + bearingXFixed + gWidthFixed).Ceil(),
 			Y: (drawer.Dot.Y + descentAbsFixed).Ceil(),
 		}
 
@@ -171,13 +178,11 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 			Ascent:   I26_6ToF32(ascentAbsFixed),
 			Descent:  I26_6ToF32(descentAbsFixed),
-			BearingX: I26_6ToF32(bearingX),
-			Advance:  I26_6ToF32(gAdvance),
+			BearingX: I26_6ToF32(bearingXFixed),
+			Advance:  I26_6ToF32(gAdvanceFixed),
 		}
 
-		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
-
-		if drawBoundingBoxes {
+		if consts.Mode_Debug && drawBoundingBoxes {
 
 			rect := image.Rectangle{
 				Min: gTopLeft,
@@ -187,8 +192,10 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		}
 
 		//Draw glyph and advance dot
+		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
 		draw.DrawMask(drawer.Dst, imgRect, drawer.Src, image.Point{}, mask, maskp, draw.Over)
-		drawer.Dot.X += gWidth + charPaddingXFixed
+
+		drawer.Dot.X += bearingXFixed + gWidthFixed + charPaddingXFixed
 
 		charsOnLine++
 		if charsOnLine == charsPerLine || currGlyphCount == len(glyphs)-1 {
@@ -353,7 +360,7 @@ func getGlyphsFromRuneRanges(ranges [][2]rune) []rune {
 	return out
 }
 
-func absFixedI26_6(x fixed.Int26_6) fixed.Int26_6 {
+func absI26_6(x fixed.Int26_6) fixed.Int26_6 {
 	if x < 0 {
 		return -x
 	}
