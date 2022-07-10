@@ -22,8 +22,8 @@ type FontAtlas struct {
 	Glyphs map[rune]FontAtlasGlyph
 
 	//Advance is global to the atlas because we only support monospaced fonts
-	Advance    int
-	LineHeight int
+	Advance    float32
+	LineHeight float32
 }
 
 type FontAtlasGlyph struct {
@@ -120,16 +120,13 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	//Create atlas
-	// atlasSizeXF32 := float32(atlasSizeX)
-	// atlasSizeYF32 := float32(atlasSizeY)
 	atlas := &FontAtlas{
 		Font:   f,
 		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
 		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
 
-		Advance:    charAdv - charPaddingX,
-		LineHeight: lineHeight,
-		// SizeUV:     *gglm.NewVec2(float32(charAdv-charPaddingX)/atlasSizeXF32, float32(lineHeight)/atlasSizeYF32),
+		Advance:    float32(charAdv - charPaddingX),
+		LineHeight: float32(lineHeight),
 	}
 
 	//Clear background to black
@@ -145,9 +142,9 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	charPaddingYFixed := fixed.I(charPaddingY)
 
 	charsOnLine := 0
-	drawer.Dot = fixed.P(atlas.Advance+charPaddingX, lineHeight)
-	const drawBoundingBoxes bool = false
+	drawer.Dot = fixed.P(int(atlas.Advance+charPaddingX), lineHeight)
 
+	const drawBoundingBoxes bool = false
 	for currGlyphCount, g := range glyphs {
 
 		gBounds, gAdvance, _ := face.GlyphBounds(g)
@@ -172,10 +169,10 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 			SizeU: float32(gBotRight.X - gTopLeft.X),
 			SizeV: float32(gBotRight.Y - gTopLeft.Y),
 
-			Ascent:   float32(ascentAbsFixed.Ceil()),
-			Descent:  float32(descentAbsFixed.Ceil()),
-			BearingX: float32(bearingX.Ceil()),
-			Advance:  float32(gAdvance.Ceil()),
+			Ascent:   I26_6ToF32(ascentAbsFixed),
+			Descent:  I26_6ToF32(descentAbsFixed),
+			BearingX: I26_6ToF32(bearingX),
+			Advance:  I26_6ToF32(gAdvance),
 		}
 
 		imgRect, mask, maskp, _, _ := face.Glyph(drawer.Dot, g)
@@ -197,7 +194,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		if charsOnLine == charsPerLine || currGlyphCount == len(glyphs)-1 {
 
 			charsOnLine = 0
-			drawer.Dot.X = fixed.I(atlas.Advance) + charPaddingXFixed
+			drawer.Dot.X = fixed.I(int(atlas.Advance)) + charPaddingXFixed
 			drawer.Dot.Y += lineHeightFixed + charPaddingYFixed
 		}
 	}
@@ -249,6 +246,16 @@ func DrawRect(img *image.RGBA, rect image.Rectangle, color color.NRGBA) {
 			img.Pix[i+1] = color.G
 			img.Pix[i+0] = color.R
 		}
+	}
+}
+
+func I26_6ToF32(x fixed.Int26_6) float32 {
+	const lower6BitMask = 1<<6 - 1
+
+	if x > 0 {
+		return float32(x.Floor()) + float32(x&lower6BitMask)/64
+	} else {
+		return float32(x.Floor()) - float32(x&lower6BitMask)/64
 	}
 }
 

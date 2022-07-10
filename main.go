@@ -63,7 +63,7 @@ func main() {
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
 
-		FontSize: 14,
+		FontSize: 36,
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, func(e sdl.Event) {
@@ -185,6 +185,7 @@ func (p *program) Update() {
 	}
 
 	imgui.Checkbox("Draw many", &drawManyLines)
+	glyphs.PrintPositions = imgui.Button("Print positions")
 }
 
 var isDrawingBounds = false
@@ -236,7 +237,7 @@ func (p *program) Render() {
 	} else {
 		charsPerFrame := float64(charCount)
 		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
-		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*int(charsPerFrame)))
+		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 	}
 
 }
@@ -259,7 +260,7 @@ func (p *program) drawGrid() {
 }
 
 func (p *program) FrameEnd() {
-
+	// engine.Quit()
 }
 
 func (p *program) DeInit() {

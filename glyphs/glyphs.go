@@ -2,6 +2,8 @@ package glyphs
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"unicode"
 
 	"github.com/bloeys/gglm/gglm"
@@ -68,11 +70,8 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	}
 
 	pos := screenPos.Clone()
-	advanceF32 := float32(gr.Atlas.Advance)
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-
 	bufIndex := gr.GlyphCount * floatsPerGlyph
-
 	for runIndex := 0; runIndex < len(runs); runIndex++ {
 
 		run := &runs[runIndex]
@@ -81,14 +80,14 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 		if run.IsLtr {
 
 			for i := 0; i < len(run.Runes); i++ {
-				gr.drawRune(run, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, screenPos, pos, color, lineHeightF32, &bufIndex)
 				prevRune = run.Runes[i]
 			}
 
 		} else {
 
 			for i := len(run.Runes) - 1; i >= 0; i-- {
-				gr.drawRune(run, i, prevRune, screenPos, pos, color, advanceF32, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, screenPos, pos, color, lineHeightF32, &bufIndex)
 				prevRune = run.Runes[i]
 			}
 
@@ -96,21 +95,20 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 	}
 }
 
-func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, advanceF32, lineHeightF32 float32, bufIndex *uint32) {
+var PrintPositions bool
+
+func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
 
 	r := run.Runes[i]
 	if r == '\n' {
 		screenPos.SetY(screenPos.Y() - lineHeightF32)
 		*pos = *screenPos.Clone()
-		// prevRune = r
 		return
 	} else if r == ' ' {
-		pos.AddX(advanceF32)
-		// prevRune = r
+		pos.AddX(gr.Atlas.Advance)
 		return
 	} else if r == '\t' {
-		pos.AddX(advanceF32 * float32(gr.SpacesPerTab))
-		// prevRune = r
+		pos.AddX(gr.Atlas.Advance * float32(gr.SpacesPerTab))
 		return
 	}
 
@@ -135,8 +133,16 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 
 	//We must adjust char positioning according to: https://developer.apple.com/library/archive/documentation/TextFonts/Conceptual/CocoaTextArchitecture/Art/glyph_metrics_2x.png
 	drawPos := *pos
-	drawPos.SetX(drawPos.X() + g.BearingX)
-	drawPos.SetY(drawPos.Y() - g.Descent)
+	//The flooring to an integer pixel must happen AFTER the (potentially) fractional adjustments have been made.
+	//This is what the truetype face.Rasterizer does and seems to give good results
+	drawPos.SetX(floorF32(drawPos.X() + g.BearingX))
+	drawPos.SetY(floorF32(drawPos.Y() - g.Descent))
+
+	if PrintPositions {
+		oldXY := gglm.NewVec2(pos.X(), pos.Y())
+		newXY := gglm.NewVec2(drawPos.X(), drawPos.Y())
+		fmt.Printf("char=%s; PosBefore=%s, PosAfter=%s; Bearing/Decent=(%f, %f)\n", string(r), oldXY.String(), newXY.String(), g.BearingX, g.Descent)
+	}
 
 	//Add the glyph information to the vbo
 	//UV
@@ -168,13 +174,26 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 	*bufIndex += 2
 
 	gr.GlyphCount++
-	pos.AddX(g.Advance)
+	pos.AddX(gr.Atlas.Advance)
+	// pos.AddX(g.Advance)
 
 	//If we fill the buffer we issue a draw call
 	if gr.GlyphCount == MaxGlyphsPerBatch {
 		gr.Draw()
 		*bufIndex = 0
 	}
+}
+
+func roundF32(x float32) float32 {
+	return float32(math.Round(float64(x)))
+}
+
+func ceilF32(x float32) float32 {
+	return float32(math.Ceil(float64(x)))
+}
+
+func floorF32(x float32) float32 {
+	return float32(math.Floor(float64(x)))
 }
 
 type TextRun struct {
