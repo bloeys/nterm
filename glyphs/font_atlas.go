@@ -148,8 +148,8 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
 		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
 
-		SpaceAdvance: I26_6ToF32(spaceAdv),
-		LineHeight:   I26_6ToF32(lineHeight),
+		SpaceAdvance: float32(spaceAdv.Ceil()),
+		LineHeight:   float32(lineHeight.Ceil()),
 	}
 
 	//Clear background to black
@@ -167,7 +167,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 
 	const drawBoundingBoxes bool = false
 	atlasSizeXFixed := fixed.I(atlasSizeX)
-	// atlasSizeYFixed := fixed.I(atlasSizeY)
+	atlasSizeYFixed := fixed.I(atlasSizeY)
 	for _, g := range glyphs {
 
 		//Glyph metrics
@@ -188,17 +188,17 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		nextDotPosDeltaX := bearingXFixed + gWidthFixed + charPaddingXFixed
 		if drawer.Dot.X+nextDotPosDeltaX >= atlasSizeXFixed {
 
+			assert.T(drawer.Dot.Y+lineHeight < atlasSizeYFixed, "Failed to create atlas because it did not fit")
+
 			drawer.Dot.X = charPaddingXFixed
 			if bearingXFixed < 0 {
 				drawer.Dot.X += absI26_6(bearingXFixed)
 			}
 
 			drawer.Dot.Y += lineHeight + charPaddingYFixed
-
-			// assert.T(drawer.Dot.Y+largestLineDescent+lineHeight < atlasSizeYFixed, "Failed to create atlas because it did not fit")
 		}
 
-		drawer.Dot = fixed.P(drawer.Dot.X.Floor(), drawer.Dot.Y.Floor())
+		drawer.Dot = fixed.P(drawer.Dot.X.Round(), drawer.Dot.Y.Round())
 
 		//Build and insert glyph struct
 		gTopLeft := image.Point{
