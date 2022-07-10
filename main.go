@@ -94,7 +94,7 @@ func (p *program) Init() {
 	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
 
 	w, h := p.win.SDLWin.GetSize()
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/arabtype-variable.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}

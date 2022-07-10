@@ -67,6 +67,7 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 	//Calculate needed atlas size
 	atlasSizeX = 512
 	atlasSizeY = 512
+	largestLineDescent := fixed.I(0)
 	lineHeight := face.Metrics().Height
 	foundAtlasSize := false
 	for !foundAtlasSize {
@@ -83,7 +84,11 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 			gBounds, _, _ := face.GlyphBounds(g)
 			bearingXFixed := gBounds.Min.X
 			gWidthFixed := gBounds.Max.X - gBounds.Min.X
-			// descent := gBounds.Max.Y
+			descent := gBounds.Max.Y
+
+			if descent > largestLineDescent {
+				largestLineDescent = descent
+			}
 
 			// Calculate distance dot will move after drawing. Advance normally if line has space,
 			// otherwise go to next line and reset X position.
@@ -99,7 +104,8 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 			if dotX+distToMoveX >= atlasSizeXFixed {
 
 				dotX = distToMoveX
-				dotY += lineHeight + charPaddingYFixed
+				dotY += lineHeight + fixed.I(largestLineDescent.Ceil()) + charPaddingYFixed
+				largestLineDescent = 0
 
 				//If we have only one more empty line then resize to be safe against descents being clipped
 				if dotY+lineHeight >= atlasSizeYFixed {
@@ -125,11 +131,9 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 //Only monospaced fonts are supported.
 func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*FontAtlas, error) {
 
-	// Vertical padding must be a bit larger because low descent on one line
-	// and high ascent on the next might cause overlapping chars
+	const maxAtlasSize = 8192
 	const charPaddingXFixed = 4 << 6
 	const charPaddingYFixed = 4 << 6
-	const maxAtlasSize = 8192
 
 	glyphs := getGlyphsFromRuneRanges(getGlyphRangesFromFont(f))
 	assert.T(len(glyphs) > 0, "no glyphs")
@@ -166,6 +170,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	drawer.Dot.Y = lineHeight
 
 	const drawBoundingBoxes bool = false
+	largestLineDescent := fixed.I(0)
 	atlasSizeXFixed := fixed.I(atlasSizeX)
 	atlasSizeYFixed := fixed.I(atlasSizeY)
 	for _, g := range glyphs {
@@ -176,6 +181,10 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		ascentAbsFixed := absI26_6(gBounds.Min.Y)
 		descentAbsFixed := absI26_6(gBounds.Max.Y)
 		gWidthFixed := gBounds.Max.X - gBounds.Min.X
+
+		if descentAbsFixed > largestLineDescent {
+			largestLineDescent = descentAbsFixed
+		}
 
 		//If bearing is negative this char might overlap with the previous one.
 		//So we need to move the dot so the drawer won't overlap even after a negative offset
@@ -188,17 +197,18 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		nextDotPosDeltaX := bearingXFixed + gWidthFixed + charPaddingXFixed
 		if drawer.Dot.X+nextDotPosDeltaX >= atlasSizeXFixed {
 
-			assert.T(drawer.Dot.Y+lineHeight < atlasSizeYFixed, "Failed to create atlas because it did not fit")
+			assert.T(drawer.Dot.Y+lineHeight < atlasSizeYFixed, "Failed to create atlas because it did not fit all glyphs. Is calcNeededAtlasSize wrong?")
 
 			drawer.Dot.X = charPaddingXFixed
 			if bearingXFixed < 0 {
 				drawer.Dot.X += absI26_6(bearingXFixed)
 			}
 
-			drawer.Dot.Y += lineHeight + charPaddingYFixed
+			drawer.Dot.Y += lineHeight + fixed.I(largestLineDescent.Ceil()) + charPaddingYFixed
+			largestLineDescent = 0
 		}
 
-		drawer.Dot = fixed.P(drawer.Dot.X.Round(), drawer.Dot.Y.Round())
+		drawer.Dot = fixed.P(drawer.Dot.X.Floor(), drawer.Dot.Y.Floor())
 
 		//Build and insert glyph struct
 		gTopLeft := image.Point{
