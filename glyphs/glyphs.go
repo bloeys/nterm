@@ -270,6 +270,7 @@ func (gr *GlyphRend) GetTextRuns(t string, textRunsBuf *[]TextRun) {
 	}
 }
 
+//GlyphFromRunes does shaping where it selects the proper rune based (e.g. end Alef) on the surrounding runes
 func GlyphFromRunes(glyphTable map[rune]FontAtlasGlyph, curr, prev, next rune) FontAtlasGlyph {
 
 	//PERF: Map access times are absolute garbage to the point that ~85%+ of the runtime of this func
@@ -287,11 +288,13 @@ func GlyphFromRunes(glyphTable map[rune]FontAtlasGlyph, curr, prev, next rune) F
 
 	//Isolated case
 	if !prevIsValid && !nextIsValid {
-		g := glyphTable[curr]
-		return g
+		return glyphTable[curr]
 	}
 
 	ri := RuneInfos[curr]
+	if ri.JoinType == JoiningType_None || ri.JoinType == JoiningType_Transparent {
+		return glyphTable[curr]
+	}
 
 	prevJoinType := RuneInfos[prev].JoinType
 	joinWithRight := prevIsValid &&
@@ -351,19 +354,6 @@ func GlyphFromRunes(glyphTable map[rune]FontAtlasGlyph, curr, prev, next rune) F
 				break
 			}
 		}
-
-	case PosCtx_isolated:
-
-		// equivRunes := RuneInfos[curr].EquivalentRunes
-		// for i := 0; i < len(equivRunes); i++ {
-
-		// 	otherRune := equivRunes[i]
-		// 	otherRuneInfo := RuneInfos[otherRune]
-		// 	if otherRuneInfo.DecompTag == DecompTag_isolated {
-		// 		curr = otherRune
-		// 		break
-		// 	}
-		// }
 	}
 
 	return glyphTable[curr]
