@@ -365,8 +365,9 @@ func (gr *GlyphRend) Draw() {
 		return
 	}
 
-	gr.InstancedBuf.SetData(gr.GlyphVBO[:gr.GlyphCount*floatsPerGlyph])
-	gr.InstancedBuf.Bind()
+	gl.BindVertexArray(gr.InstancedBuf.VAOID)
+	gl.BindBuffer(gl.ARRAY_BUFFER, gr.InstancedBuf.BufID)
+	gl.BufferSubData(gl.ARRAY_BUFFER, 0, int(gr.GlyphCount*floatsPerGlyph)*4, gl.Ptr(&gr.GlyphVBO[:gr.GlyphCount*floatsPerGlyph][0]))
 	gr.GlyphMat.Bind()
 
 	//We need to disable depth testing so that nearby characters don't occlude each other
@@ -550,6 +551,9 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	gl.EnableVertexAttribArray(5)
 	gl.VertexAttribPointer(5, scaleEle.ElementType.CompCount(), scaleEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(scaleEle.Offset))
 	gl.VertexAttribDivisor(5, 1)
+
+	//Fill buffer with zeros and set to dynamic so in the actual draw calls we use bufferSubData which makes things a lot faster
+	gl.BufferData(gl.ARRAY_BUFFER, len(gr.GlyphVBO)*4, gl.Ptr(&gr.GlyphVBO[0]), buffers.BufUsage_Dynamic.ToGL())
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 	gr.InstancedBuf.UnBind()
