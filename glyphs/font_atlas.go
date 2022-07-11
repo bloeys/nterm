@@ -22,9 +22,10 @@ type FontAtlas struct {
 	Img    *image.RGBA
 	Glyphs map[rune]FontAtlasGlyph
 
-	//SpaceAdvance is global to the atlas because we only support monospaced fonts
+	//SpaceAdvance is the advance of a space char
 	SpaceAdvance float32
-	LineHeight   float32
+	//LineHeight is the height of metrics.Height
+	LineHeight float32
 }
 
 type FontAtlasGlyph struct {
@@ -68,12 +69,13 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 	atlasSizeX = 512
 	atlasSizeY = 512
 	largestLineDescent := fixed.I(0)
+	spaceAdv, _ := face.GlyphAdvance(' ')
 	lineHeight := face.Metrics().Height
 	foundAtlasSize := false
 	for !foundAtlasSize {
 
 		foundAtlasSize = true
-		dotX := charPaddingXFixed
+		dotX := spaceAdv + charPaddingXFixed
 		dotY := lineHeight
 		atlasSizeXFixed := fixed.I(atlasSizeX)
 		atlasSizeYFixed := fixed.I(atlasSizeY)
@@ -84,39 +86,43 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 			gBounds, _, _ := face.GlyphBounds(g)
 			bearingXFixed := gBounds.Min.X
 			gWidthFixed := gBounds.Max.X - gBounds.Min.X
-			descent := gBounds.Max.Y
+			descentAbsFixed := absI26_6(gBounds.Max.Y)
 
-			if descent > largestLineDescent {
-				largestLineDescent = descent
+			if descentAbsFixed > largestLineDescent {
+				largestLineDescent = descentAbsFixed
+			}
+
+			//If bearing is negative this char might overlap with the previous one.
+			//So we need to move the dot so the drawer won't overlap even after a negative offset
+			if bearingXFixed < 0 {
+				dotX += absI26_6(bearingXFixed)
 			}
 
 			// Calculate distance dot will move after drawing. Advance normally if line has space,
 			// otherwise go to next line and reset X position.
 			distToMoveX := bearingXFixed + gWidthFixed + charPaddingXFixed
 
-			//If bearing is negative this char might overlap with the previous one.
-			//So we need to move the dot so the drawer won't overlap even after a negative offset
-			if bearingXFixed < 0 {
-				distToMoveX += absI26_6(bearingXFixed)
-			}
-
-			//If we hav eno more space go to next line
+			//If we have no more space go to next line
 			if dotX+distToMoveX >= atlasSizeXFixed {
 
-				dotX = distToMoveX
+				dotX = charPaddingXFixed
+				if bearingXFixed < 0 {
+					dotX += absI26_6(bearingXFixed)
+				}
+
 				dotY += lineHeight + fixed.I(largestLineDescent.Ceil()) + charPaddingYFixed
 				largestLineDescent = 0
 
 				//If we have only one more empty line then resize to be safe against descents being clipped
-				if dotY+lineHeight >= atlasSizeYFixed {
+				if dotY+lineHeight+charPaddingYFixed >= atlasSizeYFixed {
 					atlasSizeX *= 2
 					atlasSizeY *= 2
 					foundAtlasSize = false
 					break
 				}
-			} else {
-				dotX += distToMoveX
 			}
+
+			dotX += distToMoveX
 		}
 	}
 
@@ -153,7 +159,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
 
 		SpaceAdvance: I26_6ToF32(spaceAdv),
-		LineHeight:   float32(lineHeight.Ceil()),
+		LineHeight:   I26_6ToF32(lineHeight),
 	}
 
 	//Clear background to black

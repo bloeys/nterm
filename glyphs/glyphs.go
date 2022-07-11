@@ -188,9 +188,9 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 	}
 }
 
-func roundF32(x float32) float32 {
-	return float32(math.Round(float64(x)))
-}
+// func roundF32(x float32) float32 {
+// 	return float32(math.Round(float64(x)))
+// }
 
 // func ceilF32(x float32) float32 {
 // 	return float32(math.Ceil(float64(x)))

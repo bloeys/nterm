@@ -15,6 +15,7 @@ import (
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
+	"github.com/bloeys/nterm/consts"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
 	"github.com/inkyblackness/imgui-go/v4"
@@ -94,12 +95,15 @@ func (p *program) Init() {
 	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
 
 	w, h := p.win.SDLWin.GetSize()
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/tajawal-regular-var.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	// p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
 
-	glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
+	if consts.Mode_Debug {
+		glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
+	}
 
 	//Load resources
 	p.gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
@@ -190,7 +194,7 @@ func (p *program) Update() {
 
 var isDrawingBounds = false
 var drawManyLines = false
-var textToShow = "Hello there يا friend. اسمي عمر wow!"
+var textToShow = "Hello there يا friend. اسميعمر wow!"
 
 var xOff float32 = 0
 var yOff float32 = 0
