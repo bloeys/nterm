@@ -152,7 +152,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 		Img:    image.NewRGBA(image.Rect(0, 0, atlasSizeX, atlasSizeY)),
 		Glyphs: make(map[rune]FontAtlasGlyph, len(glyphs)),
 
-		SpaceAdvance: float32(spaceAdv.Ceil()),
+		SpaceAdvance: I26_6ToF32(spaceAdv),
 		LineHeight:   float32(lineHeight.Ceil()),
 	}
 
@@ -165,8 +165,7 @@ func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*Fo
 	}
 
 	//Put glyphs on atlas
-	drawer.Dot = fixed.P(int(atlas.SpaceAdvance), 0)
-	drawer.Dot.X += charPaddingXFixed
+	drawer.Dot.X = spaceAdv + charPaddingXFixed
 	drawer.Dot.Y = lineHeight
 
 	const drawBoundingBoxes bool = false

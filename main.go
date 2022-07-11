@@ -249,8 +249,8 @@ func (p *program) drawGrid() {
 
 	//columns
 	adv := p.GlyphRend.Atlas.SpaceAdvance
-	for i := int32(0); i < p.GlyphRend.ScreenWidth; i += int32(adv) {
-		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(float32(i)+0.5, sizeY/2, 0)).Scale(gglm.NewVec3(1, sizeY, 1)), p.gridMat)
+	for i := 0; i < int(p.GlyphRend.ScreenWidth); i++ {
+		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(adv*float32(i), sizeY/2, 0)).Scale(gglm.NewVec3(1, sizeY, 1)), p.gridMat)
 	}
 
 	//rows
