@@ -42,14 +42,19 @@ type program struct {
 	textBufSize int64
 	textBufHead int64
 
+	cmdBuf     []rune
+	cmdBufHead int64
+
 	cursorPos *gglm.Vec3
 }
 
 const (
-	subPixelX          = 64
-	subPixelY          = 64
-	hinting            = font.HintingNone
+	subPixelX = 64
+	subPixelY = 64
+	hinting   = font.HintingNone
+
 	defaultTextBufSize = 4 * 1024 * 1024
+	defaultCmdBufSize  = 4 * 1024
 )
 
 var (
@@ -83,13 +88,15 @@ func main() {
 		win:       win,
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
+		FontSize:  40,
 
-		FontSize:    40,
 		textBuf:     make([]rune, defaultTextBufSize),
 		textBufSize: defaultTextBufSize,
 		textBufHead: 0,
 
-		cursorPos: gglm.NewVec3(0, 0, 0),
+		cursorPos:  gglm.NewVec3(0, 0, 0),
+		cmdBuf:     make([]rune, defaultCmdBufSize),
+		cmdBufHead: 0,
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, p.handleSDLEvent)
@@ -115,7 +122,8 @@ func (p *program) handleSDLEvent(e sdl.Event) {
 	switch e := e.(type) {
 
 	case *sdl.TextInputEvent:
-		p.WriteToBuf([]rune(e.GetText()))
+		p.WriteToCmdBuf([]rune(e.GetText()))
+		// p.WriteToTextBuf([]rune(e.GetText()))
 	case *sdl.WindowEvent:
 		if e.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
 			p.HandleWindowResize()
@@ -191,7 +199,7 @@ func (p *program) Update() {
 	p.MainUpdate()
 }
 
-func (p *program) WriteToBuf(text []rune) {
+func (p *program) WriteToTextBuf(text []rune) {
 
 	newHeadPos := p.textBufHead + int64(len(text))
 	if newHeadPos <= p.textBufSize {
@@ -200,22 +208,47 @@ func (p *program) WriteToBuf(text []rune) {
 		return
 	}
 
-	assert.T(false, "Circular buffer not implemented")
+	assert.T(false, "Circular buffer not implemented for text buf")
 }
+
+func (p *program) WriteToCmdBuf(text []rune) {
+
+	newHeadPos := p.cmdBufHead + int64(len(text))
+	if newHeadPos <= p.textBufSize {
+		copy(p.cmdBuf[p.cmdBufHead:], text)
+		p.cmdBufHead = newHeadPos
+		return
+	}
+
+	assert.T(false, "Circular buffer not implemented for cmd buf")
+}
+
+var sepLinePos = gglm.NewVec3(0, 0, 0)
 
 func (p *program) MainUpdate() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
-		p.WriteToBuf([]rune{'\n'})
+		p.WriteToCmdBuf([]rune{'\n'})
+		p.RunCmd()
 	}
 
 	// @TODO: Implement hold to delete
 	if input.KeyClicked(sdl.K_BACKSPACE) {
-		p.textBufHead = clamp(p.textBufHead-1, 0, p.textBufSize)
+		p.cmdBufHead = clamp(p.cmdBufHead-1, 0, int64(len(p.cmdBuf)))
 	}
 
 	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[:p.textBufHead], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
+	sepLinePos.Data = p.cursorPos.Data
+
+	p.cursorPos.SetX(0)
+	p.cursorPos.AddY(-p.GlyphRend.Atlas.LineHeight)
+	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.cmdBuf[:p.cmdBufHead], p.cursorPos, gglm.NewVec4(1, 1, 1, 1)).Data
 	p.DrawCursor()
+}
+
+func (p *program) RunCmd() {
+	p.WriteToTextBuf(p.cmdBuf[:p.cmdBufHead])
+	p.cmdBufHead = 0
 }
 
 func (p *program) DrawCursor() {
@@ -280,6 +313,9 @@ func (p *program) Render() {
 
 	if consts.Mode_Debug {
 		p.DebugRender()
+
+		sizeX := float32(p.GlyphRend.ScreenWidth)
+		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, sepLinePos.Y(), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
 	}
 }
 
