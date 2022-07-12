@@ -48,6 +48,8 @@ type program struct {
 	cmdBufHead int64
 
 	cursorPos *gglm.Vec3
+	scrollPos int64
+	scrollSpd int64
 }
 
 const (
@@ -55,8 +57,10 @@ const (
 	subPixelY = 64
 	hinting   = font.HintingNone
 
-	defaultTextBufSize = 4 * 1024 * 1024
 	defaultCmdBufSize  = 4 * 1024
+	defaultTextBufSize = 4 * 1024 * 1024
+
+	defaultScrollSpd = 5
 )
 
 var (
@@ -99,6 +103,8 @@ func main() {
 		cursorPos:  gglm.NewVec3(0, 0, 0),
 		cmdBuf:     make([]rune, defaultCmdBufSize),
 		cmdBufHead: 0,
+
+		scrollSpd: defaultScrollSpd,
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, p.handleSDLEvent)
@@ -234,12 +240,17 @@ func (p *program) MainUpdate() {
 		p.RunCmd()
 	}
 
+	mouseWheelYNorm := int64(input.GetMouseWheelYNorm())
+	if mouseWheelYNorm != 0 {
+		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufHead)
+	}
+
 	// @TODO: Implement hold to delete
 	if input.KeyClicked(sdl.K_BACKSPACE) {
 		p.cmdBufHead = clamp(p.cmdBufHead-1, 0, int64(len(p.cmdBuf)))
 	}
 
-	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[:p.textBufHead], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
+	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[p.scrollPos:p.textBufHead], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
 	sepLinePos.Data = p.cursorPos.Data
 
 	p.cursorPos.SetX(0)
@@ -255,15 +266,15 @@ func (p *program) RunCmd() {
 	p.cmdBufHead = 0
 
 	cmdStr := strings.TrimSpace(string(cmdRunes))
-	cmdSplit := strings.SplitN(cmdStr, " ", 2)
+	cmdSplit := strings.Split(cmdStr, " ")
 
 	cmdName := cmdSplit[0]
-	args := ""
-	if len(cmdSplit) == 2 {
-		args = cmdSplit[1]
+	var args []string
+	if len(cmdSplit) >= 2 {
+		args = cmdSplit[1:]
 	}
 
-	cmd := exec.Command(cmdName, args)
+	cmd := exec.Command(cmdName, args...)
 	combOutBytes, err := cmd.CombinedOutput()
 	if err != nil {
 		p.PrintToTextBuf(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error()))
