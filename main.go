@@ -79,11 +79,17 @@ func main() {
 	//Don't flash white
 	p.win.SDLWin.GLSwap()
 
-	var pf, _ = os.Create("pprof.cpu")
-	defer pf.Close()
-	pprof.StartCPUProfile(pf)
+	if consts.Mode_Debug {
+		var pf, _ = os.Create("pprof.cpu")
+		defer pf.Close()
+		pprof.StartCPUProfile(pf)
+	}
+
 	engine.Run(p, p.win, p.imguiInfo)
-	pprof.StopCPUProfile()
+
+	if consts.Mode_Debug {
+		pprof.StopCPUProfile()
+	}
 }
 
 func (p *program) Init() {
