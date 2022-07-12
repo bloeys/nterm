@@ -9,6 +9,7 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/inkyblackness/imgui-go/v4 v4.3.0
 	github.com/veandco/go-sdl2 v0.4.10
+	golang.org/x/exp v0.0.0-20220706164943-b4a6d9510983
 	golang.org/x/image v0.0.0-20220617043117-41969df76e82
 )
 

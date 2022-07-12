@@ -54,20 +54,32 @@ type GlyphRend struct {
 //DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
 //screenPos is in the range [0,1], where (0,0) is the bottom left.
 //Color is RGBA in the range [0,1].
-func (gr *GlyphRend) DrawTextOpenGL01(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
+func (gr *GlyphRend) DrawTextOpenGL01String(text string, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
 	screenPos.Set(screenPos.X()*float32(gr.ScreenWidth), screenPos.Y()*float32(gr.ScreenHeight), screenPos.Z())
-	gr.DrawTextOpenGLAbs(text, screenPos, color)
+	return gr.DrawTextOpenGLAbsString(text, screenPos, color)
 }
 
-//DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
-//screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]).
+//DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
+//screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
 //Color is RGBA in the range [0,1].
-func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color *gglm.Vec4) {
+func (gr *GlyphRend) DrawTextOpenGLAbsString(text string, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
+	return gr.DrawTextOpenGLAbs([]rune(text), screenPos, color)
+}
+
+func (gr *GlyphRend) DrawTextOpenGL01(text []rune, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
+	screenPos.Set(screenPos.X()*float32(gr.ScreenWidth), screenPos.Y()*float32(gr.ScreenHeight), screenPos.Z())
+	return gr.DrawTextOpenGLAbs(text, screenPos, color)
+}
+
+//DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
+//screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
+//Color is RGBA in the range [0,1].
+func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
 
 	runs := gr.TextRunsBuf[:]
 	gr.GetTextRuns(text, &runs)
 	if runs == nil {
-		return
+		return *screenPos
 	}
 
 	pos := screenPos.Clone()
@@ -94,12 +106,15 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text string, screenPos *gglm.Vec3, color 
 
 		}
 
-		if PrintPositions {
+		if consts.Mode_Debug && PrintPositions {
 			println("")
 		}
 	}
+
+	return *pos
 }
 
+//@TODO: Debug
 var PrintPositions bool
 
 func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
@@ -205,13 +220,11 @@ type TextRun struct {
 	IsLtr bool
 }
 
-func (gr *GlyphRend) GetTextRuns(t string, textRunsBuf *[]TextRun) {
+func (gr *GlyphRend) GetTextRuns(rs []rune, textRunsBuf *[]TextRun) {
 
-	if len(t) == 0 {
+	if len(rs) == 0 {
 		return
 	}
-
-	rs := []rune(t)
 
 	runs := textRunsBuf
 	currRunScript := RuneInfos[rs[0]].ScriptTable

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
 	"runtime/pprof"
 
@@ -15,11 +14,13 @@ import (
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
+	"github.com/bloeys/nterm/assert"
 	"github.com/bloeys/nterm/consts"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
 	"github.com/inkyblackness/imgui-go/v4"
 	"github.com/veandco/go-sdl2/sdl"
+	"golang.org/x/exp/constraints"
 	"golang.org/x/image/font"
 )
 
@@ -37,12 +38,31 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	shouldDrawGrid bool
+	textBuf     []rune
+	textBufSize int64
+	textBufHead int64
+
+	cursorPos *gglm.Vec3
 }
 
-const subPixelX = 64
-const subPixelY = 64
-const hinting = font.HintingNone
+const (
+	subPixelX          = 64
+	subPixelY          = 64
+	hinting            = font.HintingNone
+	defaultTextBufSize = 4 * 1024 * 1024
+)
+
+var (
+	isDrawingBounds = false
+	drawManyLines   = false
+	drawGrid        bool
+
+	textToShow = ""
+	textColor  = gglm.NewVec4(1, 1, 1, 1)
+
+	xOff float32 = 0
+	yOff float32 = 0
+)
 
 func main() {
 
@@ -64,17 +84,15 @@ func main() {
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
 
-		FontSize: 36,
+		FontSize:    40,
+		textBuf:     make([]rune, defaultTextBufSize),
+		textBufSize: defaultTextBufSize,
+		textBufHead: 0,
+
+		cursorPos: gglm.NewVec3(0, 0, 0),
 	}
 
-	p.win.EventCallbacks = append(p.win.EventCallbacks, func(e sdl.Event) {
-		switch e := e.(type) {
-		case *sdl.WindowEvent:
-			if e.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
-				p.handleWindowResize()
-			}
-		}
-	})
+	p.win.EventCallbacks = append(p.win.EventCallbacks, p.handleSDLEvent)
 
 	//Don't flash white
 	p.win.SDLWin.GLSwap()
@@ -89,6 +107,19 @@ func main() {
 
 	if consts.Mode_Debug {
 		pprof.StopCPUProfile()
+	}
+}
+
+func (p *program) handleSDLEvent(e sdl.Event) {
+
+	switch e := e.(type) {
+
+	case *sdl.TextInputEvent:
+		p.WriteToBuf([]rune(e.GetText()))
+	case *sdl.WindowEvent:
+		if e.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
+			p.HandleWindowResize()
+		}
 	}
 }
 
@@ -118,7 +149,10 @@ func (p *program) Init() {
 	}
 
 	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
-	p.handleWindowResize()
+	p.HandleWindowResize()
+
+	//Set initial cursor pos
+	p.cursorPos.SetY(p.GlyphRend.Atlas.LineHeight)
 }
 
 func (p *program) Update() {
@@ -127,8 +161,8 @@ func (p *program) Update() {
 		engine.Quit()
 	}
 
-	if input.KeyClicked(sdl.K_SPACE) {
-		p.handleWindowResize()
+	if consts.Mode_Debug {
+		p.DebugUpdate()
 	}
 
 	//Font sizing
@@ -154,6 +188,48 @@ func (p *program) Update() {
 		}
 	}
 
+	p.MainUpdate()
+}
+
+func (p *program) WriteToBuf(text []rune) {
+
+	newHeadPos := p.textBufHead + int64(len(text))
+	if newHeadPos <= p.textBufSize {
+		copy(p.textBuf[p.textBufHead:], text)
+		p.textBufHead = newHeadPos
+		return
+	}
+
+	assert.T(false, "Circular buffer not implemented")
+}
+
+func (p *program) MainUpdate() {
+
+	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
+		p.WriteToBuf([]rune{'\n'})
+	}
+
+	// @TODO: Implement hold to delete
+	if input.KeyClicked(sdl.K_BACKSPACE) {
+		p.textBufHead = clamp(p.textBufHead-1, 0, p.textBufSize)
+	}
+
+	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[:p.textBufHead], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
+	p.DrawCursor()
+}
+
+func (p *program) DrawCursor() {
+	p.ScreenPosToGridPos(p.cursorPos)
+	p.GlyphRend.DrawTextOpenGLAbs([]rune{'|'}, p.cursorPos, gglm.NewVec4(1, 1, 1, 1))
+}
+
+func (p *program) ScreenPosToGridPos(screenPos *gglm.Vec3) {
+	screenPos.SetX(screenPos.X() / p.GlyphRend.Atlas.SpaceAdvance * p.GlyphRend.Atlas.SpaceAdvance)
+	screenPos.SetY(screenPos.Y() / p.GlyphRend.Atlas.LineHeight * p.GlyphRend.Atlas.LineHeight)
+}
+
+func (p *program) DebugUpdate() {
+
 	//Move text
 	var speed float32 = 1
 	if input.KeyDown(sdl.K_RIGHT) {
@@ -169,8 +245,8 @@ func (p *program) Update() {
 	}
 
 	//Grid
-	if input.KeyClicked(sdl.K_SPACE) {
-		p.shouldDrawGrid = !p.shouldDrawGrid
+	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_SPACE) {
+		drawGrid = !drawGrid
 	}
 
 	//UI
@@ -178,7 +254,7 @@ func (p *program) Update() {
 
 	if imgui.Button("Print Runs") {
 		runs := make([]glyphs.TextRun, 0, 20)
-		p.GlyphRend.GetTextRuns(textToShow, &runs)
+		p.GlyphRend.GetTextRuns([]rune(textToShow), &runs)
 		for _, run := range runs {
 			fmt.Printf("%s; runes: %#x\n\n", string(run.Runes), run.Runes)
 		}
@@ -198,61 +274,38 @@ func (p *program) Update() {
 	glyphs.PrintPositions = imgui.Button("Print positions")
 }
 
-var isDrawingBounds = false
-var drawManyLines = false
-var textToShow = "Hello there, friend!"
-
-var xOff float32 = 0
-var yOff float32 = 0
-
-var r = rand.Float32()
-var g = rand.Float32()
-var b = rand.Float32()
-
 func (p *program) Render() {
 
 	defer p.GlyphRend.Draw()
 
-	if p.shouldDrawGrid {
-		p.drawGrid()
+	if consts.Mode_Debug {
+		p.DebugRender()
 	}
+}
 
-	const colorSpd = 0.005
-	r += colorSpd
-	if r > 1 {
-		r = 0
-	}
+func (p *program) DebugRender() {
 
-	g += colorSpd
-	if g > 1 {
-		g = 0
-	}
-
-	b += colorSpd
-	if b > 1 {
-		b = 0
+	if drawGrid {
+		p.DrawGrid()
 	}
 
 	str := textToShow
 	charCount := len([]rune(str))
 	fps := int(timing.GetAvgFPS())
-	textColor := gglm.NewVec4(r, g, b, 1)
 	if drawManyLines {
-
 		const charsPerFrame = 500_000
 		for i := 0; i < charsPerFrame/charCount; i++ {
-			p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
 		}
 		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
 	} else {
 		charsPerFrame := float64(charCount)
-		p.GlyphRend.DrawTextOpenGLAbs(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+		p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
 		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 	}
-
 }
 
-func (p *program) drawGrid() {
+func (p *program) DrawGrid() {
 
 	sizeX := float32(p.GlyphRend.ScreenWidth)
 	sizeY := float32(p.GlyphRend.ScreenHeight)
@@ -270,18 +323,33 @@ func (p *program) drawGrid() {
 }
 
 func (p *program) FrameEnd() {
-	// engine.Quit()
 }
 
 func (p *program) DeInit() {
-
 }
 
-func (p *program) handleWindowResize() {
+func (p *program) HandleWindowResize() {
 	w, h := p.win.SDLWin.GetSize()
 	p.GlyphRend.SetScreenSize(w, h)
 
 	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 20)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 	p.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
+}
+
+func FloorF32(x float32) float32 {
+	return float32(math.Floor(float64(x)))
+}
+
+func clamp[T constraints.Ordered](x, min, max T) T {
+
+	if x < min {
+		return min
+	}
+
+	if x > max {
+		return max
+	}
+
+	return x
 }
