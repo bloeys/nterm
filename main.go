@@ -21,7 +21,6 @@ import (
 	"github.com/bloeys/nterm/consts"
 	"github.com/bloeys/nterm/glyphs"
 	"github.com/golang/freetype/truetype"
-	"github.com/inkyblackness/imgui-go/v4"
 	"github.com/veandco/go-sdl2/sdl"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/image/font"
@@ -74,9 +73,9 @@ const (
 )
 
 var (
-	isDrawingBounds = false
-	drawManyLines   = false
-	drawGrid        bool
+	// isDrawingBounds = false
+	drawManyLines = false
+	drawGrid      bool
 
 	textToShow = ""
 	textColor  = gglm.NewVec4(1, 1, 1, 1)
@@ -428,31 +427,30 @@ func (p *program) DebugUpdate() {
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_SPACE) {
 		drawGrid = !drawGrid
 	}
-	return
 
-	//UI
-	imgui.InputText("", &textToShow)
+	// //UI
+	// imgui.InputText("", &textToShow)
 
-	if imgui.Button("Print Runs") {
-		runs := make([]glyphs.TextRun, 0, 20)
-		p.GlyphRend.GetTextRuns([]rune(textToShow), &runs)
-		for _, run := range runs {
-			fmt.Printf("%s; runes: %#x\n\n", string(run.Runes), run.Runes)
-		}
-		fmt.Printf("----------------\n")
-	}
+	// if imgui.Button("Print Runs") {
+	// 	runs := make([]glyphs.TextRun, 0, 20)
+	// 	p.GlyphRend.GetTextRuns([]rune(textToShow), &runs)
+	// 	for _, run := range runs {
+	// 		fmt.Printf("%s; runes: %#x\n\n", string(run.Runes), run.Runes)
+	// 	}
+	// 	fmt.Printf("----------------\n")
+	// }
 
-	if imgui.Checkbox("Draw Bounds", &isDrawingBounds) {
+	// if imgui.Checkbox("Draw Bounds", &isDrawingBounds) {
 
-		if isDrawingBounds {
-			p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 1)
-		} else {
-			p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 0)
-		}
-	}
+	// 	if isDrawingBounds {
+	// 		p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 1)
+	// 	} else {
+	// 		p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 0)
+	// 	}
+	// }
 
-	imgui.Checkbox("Draw many", &drawManyLines)
-	glyphs.PrintPositions = imgui.Button("Print positions")
+	// imgui.Checkbox("Draw many", &drawManyLines)
+	// glyphs.PrintPositions = imgui.Button("Print positions")
 }
 
 func (p *program) Render() {
