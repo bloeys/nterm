@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -25,6 +26,13 @@ import (
 	"golang.org/x/exp/constraints"
 	"golang.org/x/image/font"
 )
+
+type Cmd struct {
+	C      *exec.Cmd
+	Stdout io.ReadCloser
+	Stdin  io.WriteCloser
+	Stderr io.ReadCloser
+}
 
 var _ engine.Game = &program{}
 
@@ -50,6 +58,8 @@ type program struct {
 	cursorPos *gglm.Vec3
 	scrollPos int64
 	scrollSpd int64
+
+	activeCmd *Cmd
 }
 
 const (
@@ -207,6 +217,7 @@ func (p *program) Update() {
 	p.MainUpdate()
 }
 
+// @TODO: These probably need a mutex
 func (p *program) WriteToTextBuf(text []rune) {
 
 	newHeadPos := p.textBufHead + int64(len(text))
@@ -237,10 +248,10 @@ func (p *program) MainUpdate() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
 		p.WriteToCmdBuf([]rune{'\n'})
-		p.RunCmd()
+		p.HandleReturn()
 	}
 
-	mouseWheelYNorm := int64(input.GetMouseWheelYNorm())
+	mouseWheelYNorm := -int64(input.GetMouseWheelYNorm())
 	if mouseWheelYNorm != 0 {
 		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufHead)
 	}
@@ -259,11 +270,24 @@ func (p *program) MainUpdate() {
 	p.DrawCursor()
 }
 
-func (p *program) RunCmd() {
+func (p *program) HandleReturn() {
 
 	cmdRunes := p.cmdBuf[:p.cmdBufHead]
-	p.WriteToTextBuf(cmdRunes)
 	p.cmdBufHead = 0
+
+	if p.activeCmd != nil {
+
+		_, err := p.activeCmd.Stdin.Write([]byte(string(cmdRunes)))
+		if err != nil {
+			p.PrintToTextBuf(fmt.Sprintf("Writing to stdin pipe of '%s' failed. Error: %s\n", p.activeCmd.C.Path, err.Error()))
+			p.ClearActiveCmd()
+			return
+		}
+
+		return
+	}
+
+	p.WriteToTextBuf(cmdRunes)
 
 	cmdStr := strings.TrimSpace(string(cmdRunes))
 	cmdSplit := strings.Split(cmdStr, " ")
@@ -275,13 +299,99 @@ func (p *program) RunCmd() {
 	}
 
 	cmd := exec.Command(cmdName, args...)
-	combOutBytes, err := cmd.CombinedOutput()
+
+	outPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		p.PrintToTextBuf(fmt.Sprintf("Creating stdout pipe of '%s' failed. Error: %s\n", cmdName, err.Error()))
+		return
+	}
+
+	inPipe, err := cmd.StdinPipe()
+	if err != nil {
+		p.PrintToTextBuf(fmt.Sprintf("Creating stdin pipe of '%s' failed. Error: %s\n", cmdName, err.Error()))
+		return
+	}
+
+	errPipe, err := cmd.StderrPipe()
+	if err != nil {
+		p.PrintToTextBuf(fmt.Sprintf("Creating stderr pipe of '%s' failed. Error: %s\n", cmdName, err.Error()))
+		return
+	}
+
+	err = cmd.Start()
 	if err != nil {
 		p.PrintToTextBuf(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error()))
 		return
 	}
+	p.activeCmd = &Cmd{
+		C:      cmd,
+		Stdout: outPipe,
+		Stdin:  inPipe,
+		Stderr: errPipe,
+	}
 
-	p.WriteToTextBuf([]rune(string(combOutBytes)))
+	//Stdout
+	go func() {
+
+		defer p.ClearActiveCmd()
+
+		buf := make([]byte, 1024)
+		for p.activeCmd != nil {
+
+			readBytes, err := p.activeCmd.Stdout.Read(buf)
+			if err != nil {
+
+				if err == io.EOF {
+					break
+				}
+
+				p.PrintToTextBuf("Stdout pipe failed. Error: " + err.Error())
+				return
+			}
+
+			if readBytes == 0 {
+				continue
+			}
+
+			p.PrintToTextBuf(string(buf[:readBytes]))
+		}
+	}()
+
+	//Stderr
+	go func() {
+
+		defer p.ClearActiveCmd()
+
+		buf := make([]byte, 1024)
+		for p.activeCmd != nil {
+
+			readBytes, err := p.activeCmd.Stderr.Read(buf)
+			if err != nil {
+
+				if err == io.EOF {
+					break
+				}
+
+				p.PrintToTextBuf("Stderr pipe failed. Error: " + err.Error())
+				return
+			}
+
+			if readBytes == 0 {
+				continue
+			}
+
+			p.PrintToTextBuf(string(buf[:readBytes]))
+		}
+	}()
+}
+
+func (p *program) ClearActiveCmd() {
+
+	if p.activeCmd == nil {
+		return
+	}
+
+	p.activeCmd = nil
 }
 
 func (p *program) PrintToTextBuf(s string) {
