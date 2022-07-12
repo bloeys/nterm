@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"runtime/pprof"
+	"strings"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/engine"
@@ -247,8 +249,32 @@ func (p *program) MainUpdate() {
 }
 
 func (p *program) RunCmd() {
-	p.WriteToTextBuf(p.cmdBuf[:p.cmdBufHead])
+
+	cmdRunes := p.cmdBuf[:p.cmdBufHead]
+	p.WriteToTextBuf(cmdRunes)
 	p.cmdBufHead = 0
+
+	cmdStr := strings.TrimSpace(string(cmdRunes))
+	cmdSplit := strings.SplitN(cmdStr, " ", 2)
+
+	cmdName := cmdSplit[0]
+	args := ""
+	if len(cmdSplit) == 2 {
+		args = cmdSplit[1]
+	}
+
+	cmd := exec.Command(cmdName, args)
+	combOutBytes, err := cmd.CombinedOutput()
+	if err != nil {
+		p.PrintToTextBuf(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error()))
+		return
+	}
+
+	p.WriteToTextBuf([]rune(string(combOutBytes)))
+}
+
+func (p *program) PrintToTextBuf(s string) {
+	p.WriteToTextBuf([]rune(s))
 }
 
 func (p *program) DrawCursor() {
@@ -281,6 +307,7 @@ func (p *program) DebugUpdate() {
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_SPACE) {
 		drawGrid = !drawGrid
 	}
+	return
 
 	//UI
 	imgui.InputText("", &textToShow)
