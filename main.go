@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"time"
 
@@ -294,13 +295,14 @@ func (p *program) MainUpdate() {
 
 	from := clamp(p.scrollPos, 0, int64(len(v1)-1))
 	to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v1)-1))
-	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(v1[from:to], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1[from:to], *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
+	// p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(v1[from:to], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), &p.Settings.DefaultColor).Data
 
 	if p.scrollPos >= int64(len(v1)) {
 
 		from := clamp(p.scrollPos-int64(len(v1)), 0, int64(len(v2)-1))
 		to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v2)-1))
-		p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(v2[from:to], p.lastCmdCharPos).Data
+		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2[from:to], *p.lastCmdCharPos).Data
 	}
 
 	sepLinePos.Data = p.lastCmdCharPos.Data
@@ -308,10 +310,155 @@ func (p *program) MainUpdate() {
 	//Draw cmd buf
 	p.lastCmdCharPos.SetX(0)
 	p.lastCmdCharPos.AddY(-p.GlyphRend.Atlas.LineHeight)
-	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], p.lastCmdCharPos).Data
+	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
 }
 
-func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 {
+const (
+	Ansi_Fg_Black          = 30
+	Ansi_Fg_Red            = 31
+	Ansi_Fg_Green          = 32
+	Ansi_Fg_Yellow         = 33
+	Ansi_Fg_Blue           = 34
+	Ansi_Fg_Magenta        = 35
+	Ansi_Fg_Cyan           = 36
+	Ansi_Fg_White          = 37
+	Ansi_Fg_Gray           = 90
+	Ansi_Fg_Bright_Red     = 91
+	Ansi_Fg_Bright_Green   = 92
+	Ansi_Fg_Bright_Yellow  = 93
+	Ansi_Fg_Bright_Blue    = 94
+	Ansi_Fg_Bright_Magenta = 95
+	Ansi_Fg_Bright_Cyan    = 96
+	Ansi_Fg_Bright_White   = 97
+
+	Ansi_Bg_Black          = 40
+	Ansi_Bg_Red            = 41
+	Ansi_Bg_Green          = 42
+	Ansi_Bg_Yellow         = 43
+	Ansi_Bg_Blue           = 44
+	Ansi_Bg_Magenta        = 45
+	Ansi_Bg_Cyan           = 46
+	Ansi_Bg_White          = 47
+	Ansi_Bg_Gray           = 100
+	Ansi_Bg_Bright_Red     = 101
+	Ansi_Bg_Bright_Green   = 102
+	Ansi_Bg_Bright_Yellow  = 103
+	Ansi_Bg_Bright_Blue    = 104
+	Ansi_Bg_Bright_Magenta = 105
+	Ansi_Bg_Bright_Cyan    = 106
+	Ansi_Bg_Bright_White   = 107
+)
+
+func (p *program) DrawTextAnsiCodes(text []rune, pos gglm.Vec3) gglm.Vec3 {
+
+	// const ansiEsc = '\x1b'
+	// const ansiChar1 = '\x1b'
+
+	startIndex := 0
+	startPos := pos.Clone()
+	currColor := p.Settings.DefaultColor
+	for i := 0; i < len(text); i++ {
+
+		r := text[i]
+
+		if r == '\n' {
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, &currColor).Data
+			pos.SetX(startPos.X())
+			pos.AddY(-p.GlyphRend.Atlas.LineHeight)
+			startIndex = i + 1
+			continue
+		}
+
+		if r != '\\' || len(text)-i < 6 {
+			continue
+		}
+
+		if text[i+1] == 'x' && text[i+2] == '1' && text[i+3] == 'b' && text[i+4] == '[' {
+
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, &currColor).Data
+
+			mIndex := -1
+			loopStart := i + 5
+			for i := loopStart; i < len(text) && i < loopStart+10; i++ {
+
+				r := text[i]
+				if r == 'm' {
+					mIndex = i
+					break
+				}
+			}
+
+			codeRunes := text[i+5 : mIndex]
+			code, err := strconv.Atoi(string(codeRunes))
+			if err != nil {
+				println("Invalid code runes:", string(codeRunes))
+				continue
+			}
+
+			if mIndex > -1 {
+				startIndex = mIndex + 1
+			} else {
+				startIndex = i
+			}
+
+			if code == 0 {
+				currColor = p.Settings.DefaultColor
+			} else {
+				currColor.Data = fgColorFromAnsiCode(code).Data
+			}
+		}
+	}
+
+	if startIndex < len(text) {
+		p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &currColor)
+	}
+
+	return pos
+}
+
+func fgColorFromAnsiCode(code int) gglm.Vec4 {
+
+	switch code {
+	case Ansi_Fg_Black:
+		return gglm.Vec4{}
+	case Ansi_Fg_Red:
+		return gglm.Vec4{Data: [4]float32{0.5, 0, 0, 1}}
+	case Ansi_Fg_Green:
+		return gglm.Vec4{Data: [4]float32{0, 0.5, 0, 1}}
+	case Ansi_Fg_Yellow:
+		return gglm.Vec4{Data: [4]float32{0.5, 0.5, 0, 1}}
+	case Ansi_Fg_Blue:
+		return gglm.Vec4{Data: [4]float32{0, 0, 0.5, 1}}
+	case Ansi_Fg_Magenta:
+		return gglm.Vec4{Data: [4]float32{0.5, 0, 0.5, 1}}
+	case Ansi_Fg_Cyan:
+		return gglm.Vec4{Data: [4]float32{0, 0.66, 0.66, 1}}
+	case Ansi_Fg_White:
+		return gglm.Vec4{Data: [4]float32{0.8, 0.8, 0.8, 1}}
+	case Ansi_Fg_Gray:
+		return gglm.Vec4{Data: [4]float32{0.5, 0.5, 0.5, 1}}
+
+	case Ansi_Fg_Bright_Red:
+		return gglm.Vec4{Data: [4]float32{1, 0, 0, 1}}
+	case Ansi_Fg_Bright_Green:
+		return gglm.Vec4{Data: [4]float32{0, 1, 0, 1}}
+	case Ansi_Fg_Bright_Yellow:
+		return gglm.Vec4{Data: [4]float32{1, 1, 0, 1}}
+	case Ansi_Fg_Bright_Blue:
+		return gglm.Vec4{Data: [4]float32{0, 0, 1, 1}}
+	case Ansi_Fg_Bright_Magenta:
+		return gglm.Vec4{Data: [4]float32{1, 0, 1, 1}}
+	case Ansi_Fg_Bright_Cyan:
+		return gglm.Vec4{Data: [4]float32{0, 1, 1, 1}}
+	case Ansi_Fg_Bright_White:
+		return gglm.Vec4{Data: [4]float32{1, 1, 1, 1}}
+
+	}
+
+	panic("Invalid ansi code: " + fmt.Sprint(code))
+}
+
+func (p *program) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 
 	startIndex := 0
 	startPos := pos.Clone()
@@ -329,7 +476,7 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 
 		// to the middle of the text not the start as it uses the start X position of the second half.
 		// So to get correct new line handling we handle newlines here
 		case '\n':
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], pos, currColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
 			pos.SetX(startPos.X())
 			pos.AddY(-p.GlyphRend.Atlas.LineHeight)
 			startIndex = i + 1
@@ -342,7 +489,7 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 
 			}
 
 			if !inDoubleString {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], pos, currColor).Data
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
 
 				startIndex = i
 				inDoubleString = true
@@ -350,7 +497,7 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 
 				continue
 			}
 
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], pos, currColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, currColor).Data
 			startIndex = i + 1
 			inDoubleString = false
 			currColor = &p.Settings.DefaultColor
@@ -361,7 +508,7 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 
 			}
 
 			if !inSingleString {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], pos, currColor).Data
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
 
 				startIndex = i
 				inSingleString = true
@@ -369,7 +516,7 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 
 				continue
 			}
 
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], pos, &p.Settings.StringColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, &p.Settings.StringColor).Data
 			startIndex = i + 1
 			inSingleString = false
 			currColor = &p.Settings.DefaultColor
@@ -378,13 +525,13 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 
 
 	if startIndex < len(text) {
 		if inDoubleString || inSingleString {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], pos, &p.Settings.StringColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.StringColor).Data
 		} else {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], pos, &p.Settings.DefaultColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.DefaultColor).Data
 		}
 	}
 
-	return *pos
+	return pos
 }
 
 func (p *program) DeletePrevChar() {
