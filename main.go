@@ -255,15 +255,23 @@ var sepLinePos = gglm.NewVec3(0, 0, 0)
 
 func (p *program) MainUpdate() {
 
+	// Return
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
 		p.WriteToCmdBuf([]rune{'\n'})
 		p.HandleReturn()
 	}
 
+	// Cursor movement and scroll
 	if input.KeyClicked(sdl.K_LEFT) {
 		p.cursorCharIndex = clamp(p.cursorCharIndex-1, 0, p.cmdBufLen)
 	} else if input.KeyClicked(sdl.K_RIGHT) {
 		p.cursorCharIndex = clamp(p.cursorCharIndex+1, 0, p.cmdBufLen)
+	}
+
+	if input.KeyClicked(sdl.K_HOME) {
+		p.cursorCharIndex = 0
+	} else if input.KeyClicked(sdl.K_END) {
+		p.cursorCharIndex = p.cmdBufLen
 	}
 
 	mouseWheelYNorm := -int64(input.GetMouseWheelYNorm())
@@ -271,6 +279,7 @@ func (p *program) MainUpdate() {
 		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufLen)
 	}
 
+	// Delete inputs
 	// @TODO: Implement hold to delete
 	if input.KeyClicked(sdl.K_BACKSPACE) {
 		p.DeletePrevChar()
