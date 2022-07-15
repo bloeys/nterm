@@ -562,13 +562,6 @@ func (p *program) DrawCursor() {
 	}
 
 	p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
-
-	// @Debug draw line indicating last char in line
-	// pos = p.lastCmdCharPos.Clone()
-	// p.ScreenPosToGridPos(pos)
-	// p.gridMat.SetUnifVec4("color", gglm.NewVec4(1, 0, 0, 1))
-	// p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
-	// p.gridMat.SetUnifVec4("color", gglm.NewVec4(1, 1, 1, 1))
 }
 
 func (p *program) ScreenPosToGridPos(screenPos *gglm.Vec3) {

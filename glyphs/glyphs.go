@@ -90,11 +90,18 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color 
 		run := &runs[runIndex]
 		prevRune := invalidRune
 
+		screenWidthF32 := float32(gr.ScreenWidth)
 		if run.IsLtr {
 
 			for i := 0; i < len(run.Runes); i++ {
 				gr.drawRune(run, i, prevRune, screenPos, pos, color, lineHeightF32, &bufIndex)
 				prevRune = run.Runes[i]
+
+				//Wrap
+				if pos.X()+gr.Atlas.SpaceAdvance >= screenWidthF32 {
+					screenPos.SetY(screenPos.Y() - lineHeightF32)
+					*pos = *screenPos.Clone()
+				}
 			}
 
 		} else {
@@ -102,6 +109,12 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color 
 			for i := len(run.Runes) - 1; i >= 0; i-- {
 				gr.drawRune(run, i, prevRune, screenPos, pos, color, lineHeightF32, &bufIndex)
 				prevRune = run.Runes[i]
+
+				//Wrap
+				if pos.X()+gr.Atlas.SpaceAdvance >= screenWidthF32 {
+					screenPos.SetY(screenPos.Y() - lineHeightF32)
+					*pos = *screenPos.Clone()
+				}
 			}
 
 		}
