@@ -274,8 +274,7 @@ func (p *program) MainUpdate() {
 		p.cursorCharIndex = p.cmdBufLen
 	}
 
-	mouseWheelYNorm := -int64(input.GetMouseWheelYNorm())
-	if mouseWheelYNorm != 0 {
+	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufLen)
 	}
 
