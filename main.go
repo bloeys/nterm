@@ -26,6 +26,11 @@ import (
 	"golang.org/x/image/font"
 )
 
+type Settings struct {
+	DefaultColor gglm.Vec4
+	StringColor  gglm.Vec4
+}
+
 type Cmd struct {
 	C      *exec.Cmd
 	Stdout io.ReadCloser
@@ -61,6 +66,8 @@ type program struct {
 	scrollSpd      int64
 
 	activeCmd *Cmd
+
+	Settings *Settings
 }
 
 const (
@@ -80,7 +87,6 @@ var (
 	drawGrid      bool
 
 	textToShow = ""
-	textColor  = gglm.NewVec4(1, 1, 1, 1)
 
 	xOff float32 = 0
 	yOff float32 = 0
@@ -117,6 +123,11 @@ func main() {
 		cmdBufLen:       0,
 
 		scrollSpd: defaultScrollSpd,
+
+		Settings: &Settings{
+			DefaultColor: *gglm.NewVec4(1, 1, 1, 1),
+			StringColor:  *gglm.NewVec4(242/255.0, 244/255.0, 10/255.0, 1),
+		},
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, p.handleSDLEvent)
@@ -289,13 +300,89 @@ func (p *program) MainUpdate() {
 	}
 
 	//Draw textBuf
-	p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[p.scrollPos:p.textBufLen], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
+	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.textBuf[p.scrollPos:p.textBufLen], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
 	sepLinePos.Data = p.lastCmdCharPos.Data
 
 	//Draw cmd buf
 	p.lastCmdCharPos.SetX(0)
 	p.lastCmdCharPos.AddY(-p.GlyphRend.Atlas.LineHeight)
-	p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.cmdBuf[:p.cmdBufLen], p.lastCmdCharPos, gglm.NewVec4(1, 1, 1, 1)).Data
+	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], p.lastCmdCharPos).Data
+}
+
+func (p *program) SyntaxHighlightAndDraw(text []rune, pos *gglm.Vec3) gglm.Vec3 {
+
+	startIndex := 0
+	startPos := pos.Clone()
+	currColor := &p.Settings.DefaultColor
+
+	inSingleString := false
+	inDoubleString := false
+	for i := 0; i < len(text); i++ {
+
+		r := text[i]
+		switch r {
+
+		// Text might be drawn in multiple calls, once per color for example. If the first half
+		// of the text gets drawn and the second half has a newline, the renderer will reset the X pos
+		// to the middle of the text not the start as it uses the start X position of the second half.
+		// So to get correct new line handling we handle newlines here
+		case '\n':
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], pos, currColor).Data
+			pos.SetX(startPos.X())
+			pos.AddY(-p.GlyphRend.Atlas.LineHeight)
+			startIndex = i + 1
+			continue
+
+		case '"':
+
+			if inSingleString {
+				continue
+			}
+
+			if !inDoubleString {
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], pos, currColor).Data
+
+				startIndex = i
+				inDoubleString = true
+				currColor = &p.Settings.StringColor
+				continue
+			}
+
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], pos, currColor).Data
+			startIndex = i + 1
+			inDoubleString = false
+			currColor = &p.Settings.DefaultColor
+
+		case '\'':
+			if inDoubleString {
+				continue
+			}
+
+			if !inSingleString {
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], pos, currColor).Data
+
+				startIndex = i
+				inSingleString = true
+				currColor = &p.Settings.StringColor
+				continue
+			}
+
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], pos, &p.Settings.StringColor).Data
+			startIndex = i + 1
+			inSingleString = false
+			currColor = &p.Settings.DefaultColor
+		}
+	}
+
+	if startIndex < len(text) {
+		if inDoubleString || inSingleString {
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], pos, &p.Settings.StringColor).Data
+		} else {
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], pos, &p.Settings.DefaultColor).Data
+		}
+	}
+
+	return *pos
 }
 
 func (p *program) DeletePrevChar() {
@@ -321,6 +408,7 @@ func (p *program) DeleteNextChar() {
 	p.cmdBufLen--
 }
 
+// @TODO: Handle double quotes not being sent properly to cmd
 func (p *program) HandleReturn() {
 
 	cmdRunes := p.cmdBuf[:p.cmdBufLen]
@@ -529,12 +617,12 @@ func (p *program) DebugRender() {
 	if drawManyLines {
 		const charsPerFrame = 500_000
 		for i := 0; i < charsPerFrame/charCount; i++ {
-			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
 		}
 		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
 	} else {
 		charsPerFrame := float64(charCount)
-		p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), textColor)
+		p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
 		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 	}
 }
