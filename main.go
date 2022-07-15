@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime/pprof"
 	"strings"
+	"time"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/engine"
@@ -20,6 +21,7 @@ import (
 	"github.com/bloeys/nterm/assert"
 	"github.com/bloeys/nterm/consts"
 	"github.com/bloeys/nterm/glyphs"
+	"github.com/bloeys/nterm/ring"
 	"github.com/golang/freetype/truetype"
 	"github.com/veandco/go-sdl2/sdl"
 	"golang.org/x/exp/constraints"
@@ -52,17 +54,18 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	textBuf    []rune
-	textBufLen int64
+	textBuf *ring.Buffer[rune]
 
 	cmdBuf    []rune
 	cmdBufLen int64
 
 	cursorCharIndex int64
-	//lastCmdCharPos is the screen pos of the last cmdBuf char drawn this frame
+	// lastCmdCharPos is the screen pos of the last cmdBuf char drawn this frame
 	lastCmdCharPos *gglm.Vec3
 	scrollPos      int64
 	scrollSpd      int64
+	maxCharsToShow int64
+	maxLinesToShow int64
 
 	activeCmd *Cmd
 
@@ -112,8 +115,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		textBuf:    make([]rune, defaultTextBufSize),
-		textBufLen: 0,
+		textBuf: ring.NewBuffer[rune](defaultTextBufSize),
 
 		cursorCharIndex: 0,
 		lastCmdCharPos:  gglm.NewVec3(0, 0, 0),
@@ -217,10 +219,10 @@ func (p *program) Update() {
 		err := p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting})
 		if err != nil {
 			p.FontSize = oldFont
-			println("Failed to update font face. Err: " + err.Error())
+			fmt.Println("Failed to update font face. Err: " + err.Error())
 		} else {
 			glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
-			println("New font size:", p.FontSize, "; New texture size:", p.GlyphRend.Atlas.Img.Rect.Max.X, "\n")
+			fmt.Println("New font size:", p.FontSize, "; New texture size:", p.GlyphRend.Atlas.Img.Rect.Max.X)
 		}
 	}
 
@@ -229,15 +231,8 @@ func (p *program) Update() {
 
 // @TODO: These probably need a mutex
 func (p *program) WriteToTextBuf(text []rune) {
-
-	newHeadPos := p.textBufLen + int64(len(text))
-	if newHeadPos <= int64(len(p.textBuf)) {
-		copy(p.textBuf[p.textBufLen:], text)
-		p.textBufLen = newHeadPos
-		return
-	}
-
-	assert.T(false, "Circular buffer not implemented for text buf")
+	p.textBuf.Write(text...)
+	p.scrollPos = clamp(p.textBuf.Len-p.maxCharsToShow, 0, p.textBuf.Len-1)
 }
 
 func (p *program) WriteToCmdBuf(text []rune) {
@@ -246,11 +241,8 @@ func (p *program) WriteToCmdBuf(text []rune) {
 	newHeadPos := p.cmdBufLen + delta
 	if newHeadPos <= defaultCmdBufSize {
 
-		// fmt.Println("\nBuf before delta:", p.cmdBuf[:p.cmdBufHead])
 		copy(p.cmdBuf[p.cursorCharIndex+delta:], p.cmdBuf[p.cursorCharIndex:])
-		// fmt.Println("Buf after delta:", p.cmdBuf[:p.cmdBufHead+delta])
 		copy(p.cmdBuf[p.cursorCharIndex:], text)
-		// fmt.Println("Buf after write:", p.cmdBuf[:p.cmdBufHead+delta])
 
 		p.cursorCharIndex += delta
 		p.cmdBufLen = newHeadPos
@@ -284,7 +276,7 @@ func (p *program) MainUpdate() {
 	}
 
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
-		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufLen)
+		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBuf.Len)
 	}
 
 	// Delete inputs
@@ -298,7 +290,19 @@ func (p *program) MainUpdate() {
 	}
 
 	//Draw textBuf
-	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.textBuf[p.scrollPos:p.textBufLen], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
+	v1, v2 := p.textBuf.Views()
+
+	from := clamp(p.scrollPos, 0, int64(len(v1)-1))
+	to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v1)-1))
+	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(v1[from:to], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
+
+	if p.scrollPos >= int64(len(v1)) {
+
+		from := clamp(p.scrollPos-int64(len(v1)), 0, int64(len(v2)-1))
+		to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v2)-1))
+		p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(v2[from:to], p.lastCmdCharPos).Data
+	}
+
 	sepLinePos.Data = p.lastCmdCharPos.Data
 
 	//Draw cmd buf
@@ -456,6 +460,7 @@ func (p *program) HandleReturn() {
 		return
 	}
 
+	startTime := time.Now()
 	err = cmd.Start()
 	if err != nil {
 		p.PrintToTextBuf(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error()))
@@ -471,8 +476,11 @@ func (p *program) HandleReturn() {
 	//Stdout
 	go func() {
 
-		defer p.ClearActiveCmd()
+		defer func() {
+			fmt.Printf("Cmd '%s' took %0.2fs\n", cmdName, time.Since(startTime).Seconds())
+		}()
 
+		defer p.ClearActiveCmd()
 		buf := make([]byte, 1024)
 		for p.activeCmd != nil {
 
@@ -492,6 +500,7 @@ func (p *program) HandleReturn() {
 			}
 
 			p.PrintToTextBuf(string(buf[:readBytes]))
+			// println("Read:", string(buf[:readBytes]))
 		}
 	}()
 
@@ -656,13 +665,25 @@ func (p *program) HandleWindowResize() {
 	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 20)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 	p.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
+
+	// We show a bit more than calculated to be safe against showing empty space
+	p.maxLinesToShow = int64(CeilF32(float32(h)/float32(p.GlyphRend.Atlas.LineHeight)) * 1.25)
+	p.maxCharsToShow = int64(CeilF32(float32(w)/float32(p.GlyphRend.Atlas.SpaceAdvance))*1.25) * p.maxLinesToShow
 }
 
 func FloorF32(x float32) float32 {
 	return float32(math.Floor(float64(x)))
 }
 
+func CeilF32(x float32) float32 {
+	return float32(math.Ceil(float64(x)))
+}
+
 func clamp[T constraints.Ordered](x, min, max T) T {
+
+	if max < min {
+		min, max = max, min
+	}
 
 	if x < min {
 		return min
