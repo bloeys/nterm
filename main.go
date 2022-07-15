@@ -49,14 +49,16 @@ type program struct {
 
 	textBuf     []rune
 	textBufSize int64
-	textBufHead int64
+	textBufLen  int64
 
-	cmdBuf     []rune
-	cmdBufHead int64
+	cmdBuf    []rune
+	cmdBufLen int64
 
-	cursorPos *gglm.Vec3
-	scrollPos int64
-	scrollSpd int64
+	cursorCharIndex int64
+	//lastCmdCharPos is the screen pos of the last cmdBuf char drawn this frame
+	lastCmdCharPos *gglm.Vec3
+	scrollPos      int64
+	scrollSpd      int64
 
 	activeCmd *Cmd
 }
@@ -107,11 +109,12 @@ func main() {
 
 		textBuf:     make([]rune, defaultTextBufSize),
 		textBufSize: defaultTextBufSize,
-		textBufHead: 0,
+		textBufLen:  0,
 
-		cursorPos:  gglm.NewVec3(0, 0, 0),
-		cmdBuf:     make([]rune, defaultCmdBufSize),
-		cmdBufHead: 0,
+		cursorCharIndex: 0,
+		lastCmdCharPos:  gglm.NewVec3(0, 0, 0),
+		cmdBuf:          make([]rune, defaultCmdBufSize),
+		cmdBufLen:       0,
 
 		scrollSpd: defaultScrollSpd,
 	}
@@ -140,7 +143,6 @@ func (p *program) handleSDLEvent(e sdl.Event) {
 
 	case *sdl.TextInputEvent:
 		p.WriteToCmdBuf([]rune(e.GetText()))
-		// p.WriteToTextBuf([]rune(e.GetText()))
 	case *sdl.WindowEvent:
 		if e.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
 			p.HandleWindowResize()
@@ -177,7 +179,7 @@ func (p *program) Init() {
 	p.HandleWindowResize()
 
 	//Set initial cursor pos
-	p.cursorPos.SetY(p.GlyphRend.Atlas.LineHeight)
+	p.lastCmdCharPos.SetY(p.GlyphRend.Atlas.LineHeight)
 }
 
 func (p *program) Update() {
@@ -219,10 +221,10 @@ func (p *program) Update() {
 // @TODO: These probably need a mutex
 func (p *program) WriteToTextBuf(text []rune) {
 
-	newHeadPos := p.textBufHead + int64(len(text))
+	newHeadPos := p.textBufLen + int64(len(text))
 	if newHeadPos <= p.textBufSize {
-		copy(p.textBuf[p.textBufHead:], text)
-		p.textBufHead = newHeadPos
+		copy(p.textBuf[p.textBufLen:], text)
+		p.textBufLen = newHeadPos
 		return
 	}
 
@@ -231,10 +233,18 @@ func (p *program) WriteToTextBuf(text []rune) {
 
 func (p *program) WriteToCmdBuf(text []rune) {
 
-	newHeadPos := p.cmdBufHead + int64(len(text))
+	delta := int64(len(text))
+	newHeadPos := p.cmdBufLen + delta
 	if newHeadPos <= p.textBufSize {
-		copy(p.cmdBuf[p.cmdBufHead:], text)
-		p.cmdBufHead = newHeadPos
+
+		// fmt.Println("\nBuf before delta:", p.cmdBuf[:p.cmdBufHead])
+		copy(p.cmdBuf[p.cursorCharIndex+delta:], p.cmdBuf[p.cursorCharIndex:])
+		// fmt.Println("Buf after delta:", p.cmdBuf[:p.cmdBufHead+delta])
+		copy(p.cmdBuf[p.cursorCharIndex:], text)
+		// fmt.Println("Buf after write:", p.cmdBuf[:p.cmdBufHead+delta])
+
+		p.cursorCharIndex += delta
+		p.cmdBufLen = newHeadPos
 		return
 	}
 
@@ -250,29 +260,64 @@ func (p *program) MainUpdate() {
 		p.HandleReturn()
 	}
 
+	if input.KeyClicked(sdl.K_LEFT) {
+		p.cursorCharIndex = clamp(p.cursorCharIndex-1, 0, p.cmdBufLen)
+	} else if input.KeyClicked(sdl.K_RIGHT) {
+		p.cursorCharIndex = clamp(p.cursorCharIndex+1, 0, p.cmdBufLen)
+	}
+
 	mouseWheelYNorm := -int64(input.GetMouseWheelYNorm())
 	if mouseWheelYNorm != 0 {
-		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufHead)
+		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBufLen)
 	}
 
 	// @TODO: Implement hold to delete
 	if input.KeyClicked(sdl.K_BACKSPACE) {
-		p.cmdBufHead = clamp(p.cmdBufHead-1, 0, int64(len(p.cmdBuf)))
+		p.DeletePrevChar()
 	}
 
-	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[p.scrollPos:p.textBufHead], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
-	sepLinePos.Data = p.cursorPos.Data
+	if input.KeyClicked(sdl.K_DELETE) {
+		p.DeleteNextChar()
+	}
 
-	p.cursorPos.SetX(0)
-	p.cursorPos.AddY(-p.GlyphRend.Atlas.LineHeight)
-	p.cursorPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.cmdBuf[:p.cmdBufHead], p.cursorPos, gglm.NewVec4(1, 1, 1, 1)).Data
-	p.DrawCursor()
+	//Draw textBuf
+	p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.textBuf[p.scrollPos:p.textBufLen], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), gglm.NewVec4(1, 1, 1, 1)).Data
+	sepLinePos.Data = p.lastCmdCharPos.Data
+
+	//Draw cmd buf
+	p.lastCmdCharPos.SetX(0)
+	p.lastCmdCharPos.AddY(-p.GlyphRend.Atlas.LineHeight)
+	p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(p.cmdBuf[:p.cmdBufLen], p.lastCmdCharPos, gglm.NewVec4(1, 1, 1, 1)).Data
+}
+
+func (p *program) DeletePrevChar() {
+
+	if p.cursorCharIndex == 0 || p.cmdBufLen == 0 {
+		return
+	}
+
+	copy(p.cmdBuf[p.cursorCharIndex-1:], p.cmdBuf[p.cursorCharIndex:])
+
+	p.cmdBufLen--
+	p.cursorCharIndex--
+}
+
+func (p *program) DeleteNextChar() {
+
+	if p.cmdBufLen == 0 || p.cursorCharIndex == p.cmdBufLen {
+		return
+	}
+
+	copy(p.cmdBuf[p.cursorCharIndex:], p.cmdBuf[p.cursorCharIndex+1:])
+
+	p.cmdBufLen--
 }
 
 func (p *program) HandleReturn() {
 
-	cmdRunes := p.cmdBuf[:p.cmdBufHead]
-	p.cmdBufHead = 0
+	cmdRunes := p.cmdBuf[:p.cmdBufLen]
+	p.cmdBufLen = 0
+	p.cursorCharIndex = 0
 
 	if p.activeCmd != nil {
 
@@ -398,8 +443,29 @@ func (p *program) PrintToTextBuf(s string) {
 }
 
 func (p *program) DrawCursor() {
-	p.ScreenPosToGridPos(p.cursorPos)
-	p.GlyphRend.DrawTextOpenGLAbs([]rune{'|'}, p.cursorPos, gglm.NewVec4(1, 1, 1, 1))
+
+	//Position cursor by placing it at the end of the drawn characters then walking backwards
+	pos := p.lastCmdCharPos.Clone()
+	p.ScreenPosToGridPos(pos)
+
+	pos.AddY(p.GlyphRend.Atlas.LineHeight * 0.5)
+	for i := clamp(p.cmdBufLen, 0, int64(len(p.cmdBuf))); i > p.cursorCharIndex; i-- {
+
+		if p.cmdBuf[i] == '\n' {
+			pos.AddY(p.GlyphRend.Atlas.LineHeight)
+			continue
+		}
+		pos.AddX(-p.GlyphRend.Atlas.SpaceAdvance)
+	}
+
+	p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
+
+	// @Debug draw line indicating last char in line
+	// pos = p.lastCmdCharPos.Clone()
+	// p.ScreenPosToGridPos(pos)
+	// p.gridMat.SetUnifVec4("color", gglm.NewVec4(1, 0, 0, 1))
+	// p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
+	// p.gridMat.SetUnifVec4("color", gglm.NewVec4(1, 1, 1, 1))
 }
 
 func (p *program) ScreenPosToGridPos(screenPos *gglm.Vec3) {
@@ -427,30 +493,6 @@ func (p *program) DebugUpdate() {
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_SPACE) {
 		drawGrid = !drawGrid
 	}
-
-	// //UI
-	// imgui.InputText("", &textToShow)
-
-	// if imgui.Button("Print Runs") {
-	// 	runs := make([]glyphs.TextRun, 0, 20)
-	// 	p.GlyphRend.GetTextRuns([]rune(textToShow), &runs)
-	// 	for _, run := range runs {
-	// 		fmt.Printf("%s; runes: %#x\n\n", string(run.Runes), run.Runes)
-	// 	}
-	// 	fmt.Printf("----------------\n")
-	// }
-
-	// if imgui.Checkbox("Draw Bounds", &isDrawingBounds) {
-
-	// 	if isDrawingBounds {
-	// 		p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 1)
-	// 	} else {
-	// 		p.GlyphRend.GlyphMat.SetUnifInt32("drawBounds", 0)
-	// 	}
-	// }
-
-	// imgui.Checkbox("Draw many", &drawManyLines)
-	// glyphs.PrintPositions = imgui.Button("Print positions")
 }
 
 func (p *program) Render() {
@@ -463,6 +505,8 @@ func (p *program) Render() {
 		sizeX := float32(p.GlyphRend.ScreenWidth)
 		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, sepLinePos.Y(), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
 	}
+
+	p.DrawCursor()
 }
 
 func (p *program) DebugRender() {
@@ -505,6 +549,7 @@ func (p *program) DrawGrid() {
 }
 
 func (p *program) FrameEnd() {
+	assert.T(p.cursorCharIndex <= p.cmdBufLen, fmt.Sprintf("Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", p.cursorCharIndex, p.cmdBufLen))
 }
 
 func (p *program) DeInit() {
