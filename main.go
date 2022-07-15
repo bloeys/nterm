@@ -52,9 +52,8 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	textBuf     []rune
-	textBufSize int64
-	textBufLen  int64
+	textBuf    []rune
+	textBufLen int64
 
 	cmdBuf    []rune
 	cmdBufLen int64
@@ -113,9 +112,8 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		textBuf:     make([]rune, defaultTextBufSize),
-		textBufSize: defaultTextBufSize,
-		textBufLen:  0,
+		textBuf:    make([]rune, defaultTextBufSize),
+		textBufLen: 0,
 
 		cursorCharIndex: 0,
 		lastCmdCharPos:  gglm.NewVec3(0, 0, 0),
@@ -233,7 +231,7 @@ func (p *program) Update() {
 func (p *program) WriteToTextBuf(text []rune) {
 
 	newHeadPos := p.textBufLen + int64(len(text))
-	if newHeadPos <= p.textBufSize {
+	if newHeadPos <= int64(len(p.textBuf)) {
 		copy(p.textBuf[p.textBufLen:], text)
 		p.textBufLen = newHeadPos
 		return
@@ -246,7 +244,7 @@ func (p *program) WriteToCmdBuf(text []rune) {
 
 	delta := int64(len(text))
 	newHeadPos := p.cmdBufLen + delta
-	if newHeadPos <= p.textBufSize {
+	if newHeadPos <= defaultCmdBufSize {
 
 		// fmt.Println("\nBuf before delta:", p.cmdBuf[:p.cmdBufHead])
 		copy(p.cmdBuf[p.cursorCharIndex+delta:], p.cmdBuf[p.cursorCharIndex:])
