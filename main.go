@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime/pprof"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -291,24 +290,24 @@ func (p *program) MainUpdate() {
 		p.DeleteNextChar()
 	}
 
-	//Draw textBuf
+	// @TODO cmds should be printed with only syntax highlighting
+	// Draw textBuf
 	v1, v2 := p.textBuf.Views()
 
 	from := clamp(p.scrollPos, 0, int64(len(v1)-1))
 	to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v1)-1))
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(bytesToRunes(v1[from:to]), *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
-	// p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(v1[from:to], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), &p.Settings.DefaultColor).Data
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1[from:to], *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
 
 	if p.scrollPos >= int64(len(v1)) {
 
 		from := clamp(p.scrollPos-int64(len(v1)), 0, int64(len(v2)-1))
 		to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v2)-1))
-		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(bytesToRunes(v2[from:to]), *p.lastCmdCharPos).Data
+		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2[from:to], *p.lastCmdCharPos).Data
 	}
 
 	sepLinePos.Data = p.lastCmdCharPos.Data
 
-	//Draw cmd buf
+	// Draw cmd buf
 	p.lastCmdCharPos.SetX(0)
 	p.lastCmdCharPos.AddY(-p.GlyphRend.Atlas.LineHeight)
 	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
@@ -337,104 +336,58 @@ func bytesToRunes(b []byte) []rune {
 	return out
 }
 
-const (
-	Ansi_Fg_Black          = 30
-	Ansi_Fg_Red            = 31
-	Ansi_Fg_Green          = 32
-	Ansi_Fg_Yellow         = 33
-	Ansi_Fg_Blue           = 34
-	Ansi_Fg_Magenta        = 35
-	Ansi_Fg_Cyan           = 36
-	Ansi_Fg_White          = 37
-	Ansi_Fg_Gray           = 90
-	Ansi_Fg_Bright_Red     = 91
-	Ansi_Fg_Bright_Green   = 92
-	Ansi_Fg_Bright_Yellow  = 93
-	Ansi_Fg_Bright_Blue    = 94
-	Ansi_Fg_Bright_Magenta = 95
-	Ansi_Fg_Bright_Cyan    = 96
-	Ansi_Fg_Bright_White   = 97
+func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
-	Ansi_Bg_Black          = 40
-	Ansi_Bg_Red            = 41
-	Ansi_Bg_Green          = 42
-	Ansi_Bg_Yellow         = 43
-	Ansi_Bg_Blue           = 44
-	Ansi_Bg_Magenta        = 45
-	Ansi_Bg_Cyan           = 46
-	Ansi_Bg_White          = 47
-	Ansi_Bg_Gray           = 100
-	Ansi_Bg_Bright_Red     = 101
-	Ansi_Bg_Bright_Green   = 102
-	Ansi_Bg_Bright_Yellow  = 103
-	Ansi_Bg_Bright_Blue    = 104
-	Ansi_Bg_Bright_Magenta = 105
-	Ansi_Bg_Bright_Cyan    = 106
-	Ansi_Bg_Bright_White   = 107
-)
-
-func (p *program) DrawTextAnsiCodes(text []rune, pos gglm.Vec3) gglm.Vec3 {
-
-	// const ansiEsc = '\x1b'
-	// const ansiChar1 = '\x1b'
-
-	startIndex := 0
 	startPos := pos.Clone()
 	currColor := p.Settings.DefaultColor
-	for i := 0; i < len(text); i++ {
 
-		r := text[i]
+	draw := func(rs []rune) {
 
-		if r == '\n' {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, &currColor).Data
-			pos.SetX(startPos.X())
-			pos.AddY(-p.GlyphRend.Atlas.LineHeight)
-			startIndex = i + 1
-			continue
-		}
+		startIndex := 0
+		for i := 0; i < len(rs); i++ {
 
-		if r != '\\' || len(text)-i < 6 {
-			continue
-		}
+			r := rs[i]
 
-		if text[i+1] == 'x' && text[i+2] == '1' && text[i+3] == 'b' && text[i+4] == '[' {
-
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, &currColor).Data
-
-			mIndex := -1
-			loopStart := i + 5
-			for i := loopStart; i < len(text) && i < loopStart+10; i++ {
-
-				r := text[i]
-				if r == 'm' {
-					mIndex = i
-					break
-				}
-			}
-
-			codeRunes := text[i+5 : mIndex]
-			code, err := strconv.Atoi(string(codeRunes))
-			if err != nil {
-				println("Invalid code runes:", string(codeRunes))
+			// @PERF We could probably use bytes.IndexByte here
+			if r == '\n' {
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(rs[startIndex:i], &pos, &currColor).Data
+				pos.SetX(startPos.X())
+				pos.AddY(-p.GlyphRend.Atlas.LineHeight)
+				startIndex = i + 1
 				continue
 			}
+		}
 
-			if mIndex > -1 {
-				startIndex = mIndex + 1
-			} else {
-				startIndex = i
-			}
-
-			if code == 0 {
-				currColor = p.Settings.DefaultColor
-			} else {
-				currColor.Data = fgColorFromAnsiCode(code).Data
-			}
+		if startIndex < len(rs) {
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(rs[startIndex:], &pos, &currColor).Data
 		}
 	}
 
-	if startIndex < len(text) {
-		p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &currColor)
+	for {
+
+		index, code := NextAnsiCode(bs)
+		if index == -1 {
+			draw(bytesToRunes(bs))
+			break
+		}
+
+		// Draw text before the code
+		before := bytesToRunes(bs[:index])
+		draw(before)
+
+		//Apply code
+		info := InfoFromAnsiCode(code)
+		if info.Options&AnsiCodeOptions_ColorFg != 0 {
+
+			if info.Info1.X() == -1 {
+				currColor = p.Settings.DefaultColor
+			} else {
+				currColor = info.Info1
+			}
+		}
+
+		// Advance beyond the code chars
+		bs = bs[index+len(code):]
 	}
 
 	return pos
