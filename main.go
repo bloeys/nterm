@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/engine"
@@ -55,7 +56,7 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	textBuf *ring.Buffer[rune]
+	textBuf *ring.Buffer[byte]
 
 	cmdBuf    []rune
 	cmdBufLen int64
@@ -97,6 +98,11 @@ var (
 
 func main() {
 
+	// x := `Hi \x1b[31Hello \x1b[31mthere`
+	// beforeArr, code, afterArr := nextAnsiCode([]rune(x))
+	// fmt.Printf("x=%s; beforeArr=%s; code=%s; afterArr=%s\n", x, string(beforeArr), string(code), string(afterArr))
+	// return
+
 	err := engine.Init()
 	if err != nil {
 		panic("Failed to init engine. Err: " + err.Error())
@@ -116,7 +122,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		textBuf: ring.NewBuffer[rune](defaultTextBufSize),
+		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
 		cursorCharIndex: 0,
 		lastCmdCharPos:  gglm.NewVec3(0, 0, 0),
@@ -231,7 +237,7 @@ func (p *program) Update() {
 }
 
 // @TODO: These probably need a mutex
-func (p *program) WriteToTextBuf(text []rune) {
+func (p *program) WriteToTextBuf(text []byte) {
 	p.textBuf.Write(text...)
 	p.scrollPos = clamp(p.textBuf.Len-p.maxCharsToShow, 0, p.textBuf.Len-1)
 }
@@ -295,14 +301,14 @@ func (p *program) MainUpdate() {
 
 	from := clamp(p.scrollPos, 0, int64(len(v1)-1))
 	to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v1)-1))
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1[from:to], *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(bytesToRunes(v1[from:to]), *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
 	// p.lastCmdCharPos.Data = p.GlyphRend.DrawTextOpenGLAbs(v1[from:to], gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0), &p.Settings.DefaultColor).Data
 
 	if p.scrollPos >= int64(len(v1)) {
 
 		from := clamp(p.scrollPos-int64(len(v1)), 0, int64(len(v2)-1))
 		to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v2)-1))
-		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2[from:to], *p.lastCmdCharPos).Data
+		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(bytesToRunes(v2[from:to]), *p.lastCmdCharPos).Data
 	}
 
 	sepLinePos.Data = p.lastCmdCharPos.Data
@@ -311,6 +317,29 @@ func (p *program) MainUpdate() {
 	p.lastCmdCharPos.SetX(0)
 	p.lastCmdCharPos.AddY(-p.GlyphRend.Atlas.LineHeight)
 	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
+}
+
+func bytesToRunes(b []byte) []rune {
+
+	runeCount := utf8.RuneCount(b)
+	if runeCount == 0 {
+		return []rune{}
+	}
+
+	// @PERF We should use a pre-allocated buffer here
+	out := make([]rune, 0, runeCount)
+	for {
+
+		r, size := utf8.DecodeRune(b)
+		if r == utf8.RuneError {
+			break
+		}
+
+		out = append(out, r)
+		b = b[size:]
+	}
+
+	return out
 }
 
 const (
@@ -576,7 +605,8 @@ func (p *program) HandleReturn() {
 		return
 	}
 
-	p.WriteToTextBuf(cmdRunes)
+	// @PERF
+	p.WriteToTextBuf([]byte(string(cmdRunes)))
 
 	cmdStr := strings.TrimSpace(string(cmdRunes))
 	cmdSplit := strings.Split(cmdStr, " ")
@@ -689,7 +719,7 @@ func (p *program) ClearActiveCmd() {
 }
 
 func (p *program) PrintToTextBuf(s string) {
-	p.WriteToTextBuf([]rune(s))
+	p.WriteToTextBuf([]byte(s))
 }
 
 func (p *program) DrawCursor() {
@@ -758,19 +788,21 @@ func (p *program) DebugRender() {
 		p.DrawGrid()
 	}
 
-	str := textToShow
-	charCount := len([]rune(str))
-	fps := int(timing.GetAvgFPS())
-	if drawManyLines {
-		const charsPerFrame = 500_000
-		for i := 0; i < charsPerFrame/charCount; i++ {
+	if len(textToShow) > 0 {
+		str := textToShow
+		charCount := len([]rune(str))
+		fps := int(timing.GetAvgFPS())
+		if drawManyLines {
+			const charsPerFrame = 500_000
+			for i := 0; i < charsPerFrame/charCount; i++ {
+				p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
+			}
+			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
+		} else {
+			charsPerFrame := float64(charCount)
 			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
+			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 		}
-		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
-	} else {
-		charsPerFrame := float64(charCount)
-		p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
-		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 	}
 }
 
