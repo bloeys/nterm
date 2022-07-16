@@ -98,11 +98,6 @@ var (
 
 func main() {
 
-	// x := `Hi \x1b[31Hello \x1b[31mthere`
-	// beforeArr, code, afterArr := nextAnsiCode([]rune(x))
-	// fmt.Printf("x=%s; beforeArr=%s; code=%s; afterArr=%s\n", x, string(beforeArr), string(code), string(afterArr))
-	// return
-
 	err := engine.Init()
 	if err != nil {
 		panic("Failed to init engine. Err: " + err.Error())
@@ -443,48 +438,6 @@ func (p *program) DrawTextAnsiCodes(text []rune, pos gglm.Vec3) gglm.Vec3 {
 	}
 
 	return pos
-}
-
-func fgColorFromAnsiCode(code int) gglm.Vec4 {
-
-	switch code {
-	case Ansi_Fg_Black:
-		return gglm.Vec4{}
-	case Ansi_Fg_Red:
-		return gglm.Vec4{Data: [4]float32{0.5, 0, 0, 1}}
-	case Ansi_Fg_Green:
-		return gglm.Vec4{Data: [4]float32{0, 0.5, 0, 1}}
-	case Ansi_Fg_Yellow:
-		return gglm.Vec4{Data: [4]float32{0.5, 0.5, 0, 1}}
-	case Ansi_Fg_Blue:
-		return gglm.Vec4{Data: [4]float32{0, 0, 0.5, 1}}
-	case Ansi_Fg_Magenta:
-		return gglm.Vec4{Data: [4]float32{0.5, 0, 0.5, 1}}
-	case Ansi_Fg_Cyan:
-		return gglm.Vec4{Data: [4]float32{0, 0.66, 0.66, 1}}
-	case Ansi_Fg_White:
-		return gglm.Vec4{Data: [4]float32{0.8, 0.8, 0.8, 1}}
-	case Ansi_Fg_Gray:
-		return gglm.Vec4{Data: [4]float32{0.5, 0.5, 0.5, 1}}
-
-	case Ansi_Fg_Bright_Red:
-		return gglm.Vec4{Data: [4]float32{1, 0, 0, 1}}
-	case Ansi_Fg_Bright_Green:
-		return gglm.Vec4{Data: [4]float32{0, 1, 0, 1}}
-	case Ansi_Fg_Bright_Yellow:
-		return gglm.Vec4{Data: [4]float32{1, 1, 0, 1}}
-	case Ansi_Fg_Bright_Blue:
-		return gglm.Vec4{Data: [4]float32{0, 0, 1, 1}}
-	case Ansi_Fg_Bright_Magenta:
-		return gglm.Vec4{Data: [4]float32{1, 0, 1, 1}}
-	case Ansi_Fg_Bright_Cyan:
-		return gglm.Vec4{Data: [4]float32{0, 1, 1, 1}}
-	case Ansi_Fg_Bright_White:
-		return gglm.Vec4{Data: [4]float32{1, 1, 1, 1}}
-
-	}
-
-	panic("Invalid ansi code: " + fmt.Sprint(code))
 }
 
 func (p *program) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
