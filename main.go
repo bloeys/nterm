@@ -597,7 +597,7 @@ func (p *program) HandleReturn() {
 
 		_, err := p.activeCmd.Stdin.Write([]byte(string(cmdRunes)))
 		if err != nil {
-			p.PrintToTextBuf(fmt.Sprintf("Writing to stdin pipe of '%s' failed. Error: %s\n", p.activeCmd.C.Path, err.Error()))
+			p.WriteToTextBuf([]byte(fmt.Sprintf("Writing to stdin pipe of '%s' failed. Error: %s\n", p.activeCmd.C.Path, err.Error())))
 			p.ClearActiveCmd()
 			return
 		}
@@ -621,26 +621,26 @@ func (p *program) HandleReturn() {
 
 	outPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		p.PrintToTextBuf(fmt.Sprintf("Creating stdout pipe of '%s' failed. Error: %s\n", cmdName, err.Error()))
+		p.WriteToTextBuf([]byte(fmt.Sprintf("Creating stdout pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {
-		p.PrintToTextBuf(fmt.Sprintf("Creating stdin pipe of '%s' failed. Error: %s\n", cmdName, err.Error()))
+		p.WriteToTextBuf([]byte(fmt.Sprintf("Creating stdin pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 
 	errPipe, err := cmd.StderrPipe()
 	if err != nil {
-		p.PrintToTextBuf(fmt.Sprintf("Creating stderr pipe of '%s' failed. Error: %s\n", cmdName, err.Error()))
+		p.WriteToTextBuf([]byte(fmt.Sprintf("Creating stderr pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 
 	startTime := time.Now()
 	err = cmd.Start()
 	if err != nil {
-		p.PrintToTextBuf(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error()))
+		p.WriteToTextBuf([]byte(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 	p.activeCmd = &Cmd{
@@ -668,7 +668,7 @@ func (p *program) HandleReturn() {
 					break
 				}
 
-				p.PrintToTextBuf("Stdout pipe failed. Error: " + err.Error())
+				p.WriteToTextBuf([]byte("Stdout pipe failed. Error: " + err.Error()))
 				return
 			}
 
@@ -676,7 +676,7 @@ func (p *program) HandleReturn() {
 				continue
 			}
 
-			p.PrintToTextBuf(string(buf[:readBytes]))
+			p.WriteToTextBuf(buf[:readBytes])
 			// println("Read:", string(buf[:readBytes]))
 		}
 	}()
@@ -696,7 +696,7 @@ func (p *program) HandleReturn() {
 					break
 				}
 
-				p.PrintToTextBuf("Stderr pipe failed. Error: " + err.Error())
+				p.WriteToTextBuf([]byte("Stderr pipe failed. Error: " + err.Error()))
 				return
 			}
 
@@ -704,7 +704,7 @@ func (p *program) HandleReturn() {
 				continue
 			}
 
-			p.PrintToTextBuf(string(buf[:readBytes]))
+			p.WriteToTextBuf(buf[:readBytes])
 		}
 	}()
 }
@@ -716,10 +716,6 @@ func (p *program) ClearActiveCmd() {
 	}
 
 	p.activeCmd = nil
-}
-
-func (p *program) PrintToTextBuf(s string) {
-	p.WriteToTextBuf([]byte(s))
 }
 
 func (p *program) DrawCursor() {
