@@ -822,6 +822,13 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 	return lastIndex
 }
 
+// find_n_lines_index starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
+// then returns the index of the nth line and the size of char in bytes that preceeds the line.
+//
+// A line is counted when either a '\n' is seen or by seeing enough chars that a wrap is required.
+//
+// Note: When moving backwards from the start of the line, the first char will be a new line (e.g. \n), so the first counted line is not a full line
+// but only a single rune. So in most cases to get '-n' lines backwards you should request '-n-1' lines.
 func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastIndex, lastSize int64) {
 
 	lastIndex = -1
