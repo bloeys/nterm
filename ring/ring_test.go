@@ -89,6 +89,95 @@ func TestRing(t *testing.T) {
 	CheckArr(t, []int{5, 6, 8, 8}, b2.Data)
 }
 
+func TestIterator(t *testing.T) {
+
+	// Only v1 set
+	b := ring.NewBuffer[int](4)
+	b.Write(1, 2)
+
+	got := []int{}
+	ans := []int{1, 2}
+	it := b.Iterator()
+	for v, done := it.Next(); !done; v, done = it.Next() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	got = []int{}
+	ans = []int{2, 1}
+	for v, done := it.Prev(); !done; v, done = it.Prev() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	got = []int{}
+	ans = []int{1, 2}
+	it.GotoStart()
+	for v, done := it.Next(); !done; v, done = it.Next() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	// V1 and v2 set
+	b.Write(3, 4, 5, 6)
+	got = []int{}
+	ans = []int{3, 4, 5, 6}
+	it = b.Iterator()
+	for v, done := it.Next(); !done; v, done = it.Next() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	it.GotoEnd()
+	got = []int{}
+	ans = []int{6, 5, 4, 3}
+	for v, done := it.Prev(); !done; v, done = it.Prev() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	// GotoIndex
+	got = []int{}
+	ans = []int{5, 6}
+	it.GotoIndex(2)
+	for v, done := it.Next(); !done; v, done = it.Next() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	got = []int{}
+	ans = []int{4, 3}
+	it.GotoIndex(2)
+	for v, done := it.Prev(); !done; v, done = it.Prev() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	got = []int{}
+	ans = []int{}
+	it.GotoIndex(-100)
+	for v, done := it.Prev(); !done; v, done = it.Prev() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	got = []int{}
+	ans = []int{6, 5, 4, 3}
+	it.GotoIndex(100)
+	for v, done := it.Prev(); !done; v, done = it.Prev() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+
+	got = []int{}
+	ans = []int{}
+	it.GotoIndex(100)
+	for v, done := it.Next(); !done; v, done = it.Next() {
+		got = append(got, v)
+	}
+	CheckArr(t, ans, got)
+}
+
 func Check[T comparable](t *testing.T, expected, got T) {
 	if got != expected {
 		t.Fatalf("Expected %v but got %v\n", expected, got)

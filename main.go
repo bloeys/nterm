@@ -284,6 +284,8 @@ func (p *program) MainUpdate() {
 		var newPosNewLines int64
 		w, _ := p.GridSize()
 		if mouseWheelYNorm < 0 {
+			// @TODO This is wrong because it deals with data as a normal array while its a ring buffer
+
 			newPosNewLines, _ = find_n_lines_index(p.textBuf.Data, p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, int64(w))
 		} else {
 			newPosNewLines, _ = find_n_lines_index(p.textBuf.Data, p.scrollPos, p.scrollSpd*mouseWheelYNorm, int64(w))

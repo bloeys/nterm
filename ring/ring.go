@@ -96,6 +96,8 @@ func clamp[T constraints.Ordered](x, min, max T) T {
 // If Start+Len>Cap then the first slice contains the data from Start till Cap, and the second slice contains data from Zero till Start+Len-Cap (basically the remaining elements to reach Len in total)
 //
 // This function does NOT copy. Any changes on the returned slices will reflect on the buffer Data
+//
+// Note: Views become invalid when a write/insert is done on the buffer
 func (b *Buffer[T]) Views() (v1, v2 []T) {
 
 	if b.Start+b.Len <= b.Cap {
@@ -107,6 +109,17 @@ func (b *Buffer[T]) Views() (v1, v2 []T) {
 	return
 }
 
+func (b *Buffer[T]) Iterator() Iterator[T] {
+
+	v1, v2 := b.Views()
+	return Iterator[T]{
+		V1:   v1,
+		V2:   v2,
+		Curr: 0,
+		InV1: true,
+	}
+}
+
 func NewBuffer[T any](capacity uint64) *Buffer[T] {
 
 	return &Buffer[T]{
@@ -115,4 +128,111 @@ func NewBuffer[T any](capacity uint64) *Buffer[T] {
 		Len:   0,
 		Cap:   int64(capacity),
 	}
+}
+
+// Iterator provides a way of iterating and indexing values of a ring buffer as if it was a flat array
+// without having to deal with wrapping and so on.
+//
+// Indices used are all relative to 'Buffer.Start'
+type Iterator[T any] struct {
+	V1 []T
+	V2 []T
+
+	// Curr is the index of the element that will be returned on Next()
+	Curr int64
+	InV1 bool
+}
+
+// Next returns the value at Iterator.Curr and done=false
+//
+// If there are no more values to return the default value is returned for v and done=true
+func (it *Iterator[T]) Next() (v T, done bool) {
+
+	if it.InV1 {
+
+		v = it.V1[it.Curr]
+
+		it.Curr++
+		if it.Curr >= int64(len(it.V1)) {
+			it.Curr = 0
+			it.InV1 = false
+		}
+
+		return v, false
+	}
+
+	if it.Curr >= int64(len(it.V2)) {
+		return v, true
+	}
+
+	v = it.V2[it.Curr]
+	it.Curr++
+	return v, false
+}
+
+// Next returns the value at Iterator.Curr-1 and done=false
+//
+// If there are no more values to return the default value is returned for v and done=true
+func (it *Iterator[T]) Prev() (v T, done bool) {
+
+	if it.InV1 {
+
+		if it.Curr <= 0 {
+			return v, true
+		}
+
+		it.Curr--
+		v = it.V1[it.Curr]
+		return v, false
+	}
+
+	it.Curr--
+	if it.Curr < 0 {
+		it.InV1 = true
+		it.Curr = int64(len(it.V1))
+		return it.Prev()
+	}
+
+	v = it.V2[it.Curr]
+
+	return v, false
+}
+
+// GotoStart adjusts the iterator such that the following Next() call returns the value at index=0
+// and the next Prev() call returns done=true
+func (it *Iterator[T]) GotoStart() {
+	it.Curr = 0
+	it.InV1 = true
+}
+
+// GotoIndex goes to the index n relative to Buffer.Start
+func (it *Iterator[T]) GotoIndex(n int64) {
+
+	if n <= 0 {
+		it.GotoStart()
+		return
+	}
+
+	v1Len := int64(len(it.V1))
+	if n < v1Len {
+		it.Curr = n
+		it.InV1 = true
+		return
+	}
+
+	n -= v1Len
+	if n < int64(len(it.V2)) {
+		it.Curr = n
+		it.InV1 = false
+		return
+	}
+
+	it.GotoEnd()
+}
+
+// GotoEnd adjusts the iterator such that the following Prev() call returns the value at index=Len-1
+// and the following Next() call returns done=true
+func (it *Iterator[T]) GotoEnd() {
+	it.Curr = int64(len(it.V2))
+	it.InV1 = false
 }
