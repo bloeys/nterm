@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	MaxGlyphsPerBatch = 16384
+	DefaultGlyphsPerBatch = 16384
 
 	floatsPerGlyph = 13
 	invalidRune    = unicode.ReplacementChar
@@ -210,7 +210,7 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos
 
 	//If we fill the buffer we issue a draw call
 	gr.GlyphCount++
-	if gr.GlyphCount == MaxGlyphsPerBatch {
+	if gr.GlyphCount == DefaultGlyphsPerBatch {
 		gr.Draw()
 		*bufIndex = 0
 	}
@@ -487,7 +487,7 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 
 	gr := &GlyphRend{
 		GlyphCount:   0,
-		GlyphVBO:     make([]float32, floatsPerGlyph*MaxGlyphsPerBatch),
+		GlyphVBO:     make([]float32, floatsPerGlyph*DefaultGlyphsPerBatch),
 		TextRunsBuf:  make([]TextRun, 0, 20),
 		SpacesPerTab: 4,
 	}

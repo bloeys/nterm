@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -55,7 +56,8 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	textBuf *ring.Buffer[byte]
+	textBuf      *ring.Buffer[byte]
+	textBufMutex sync.Mutex
 
 	cmdBuf    []rune
 	cmdBufLen int64
@@ -69,8 +71,7 @@ type program struct {
 	maxLinesToShow int64
 
 	activeCmd *Cmd
-
-	Settings *Settings
+	Settings  *Settings
 }
 
 const (
@@ -230,10 +231,12 @@ func (p *program) Update() {
 	p.MainUpdate()
 }
 
-// @TODO: These probably need a mutex
 func (p *program) WriteToTextBuf(text []byte) {
+	// This is locked because running cmds are potentially writing to it same time we are
+	p.textBufMutex.Lock()
 	p.textBuf.Write(text...)
 	p.scrollPos = clamp(p.textBuf.Len-p.maxCharsToShow, 0, p.textBuf.Len-1)
+	p.textBufMutex.Unlock()
 }
 
 func (p *program) WriteToCmdBuf(text []rune) {
@@ -277,7 +280,16 @@ func (p *program) MainUpdate() {
 	}
 
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
-		p.scrollPos = clamp(p.scrollPos+p.scrollSpd*mouseWheelYNorm, 0, p.textBuf.Len)
+
+		var newPosNewLines int64
+		w, _ := p.GridSize()
+		if mouseWheelYNorm < 0 {
+			newPosNewLines, _ = find_n_lines_index(p.textBuf.Data, p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, int64(w))
+		} else {
+			newPosNewLines, _ = find_n_lines_index(p.textBuf.Data, p.scrollPos, p.scrollSpd*mouseWheelYNorm, int64(w))
+		}
+
+		p.scrollPos = clamp(newPosNewLines, 0, p.textBuf.Len)
 	}
 
 	// Delete inputs
@@ -290,7 +302,6 @@ func (p *program) MainUpdate() {
 		p.DeleteNextChar()
 	}
 
-	// @TODO cmds should be printed with only syntax highlighting
 	// Draw textBuf
 	v1, v2 := p.textBuf.Views()
 
@@ -643,6 +654,10 @@ func (p *program) DrawCursor() {
 	p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
 }
 
+func (p *program) GridSize() (w, h int32) {
+	return p.GlyphRend.ScreenWidth / int32(p.GlyphRend.Atlas.SpaceAdvance), p.GlyphRend.ScreenHeight / int32(p.GlyphRend.Atlas.LineHeight)
+}
+
 func (p *program) ScreenPosToGridPos(screenPos *gglm.Vec3) {
 	screenPos.SetX(screenPos.X() / p.GlyphRend.Atlas.SpaceAdvance * p.GlyphRend.Atlas.SpaceAdvance)
 	screenPos.SetY(screenPos.Y() / p.GlyphRend.Atlas.LineHeight * p.GlyphRend.Atlas.LineHeight)
@@ -699,11 +714,11 @@ func (p *program) DebugRender() {
 			for i := 0; i < charsPerFrame/charCount; i++ {
 				p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
 			}
-			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
+			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
 		} else {
 			charsPerFrame := float64(charCount)
 			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
-			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.MaxGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
+			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 		}
 	}
 }
@@ -768,4 +783,112 @@ func clamp[T constraints.Ordered](x, min, max T) T {
 	}
 
 	return x
+}
+
+func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIndex int64) {
+
+	lastIndex = -1
+	if n >= 0 {
+
+		for i := startIndex; i < int64(len(arr)); i++ {
+
+			if arr[i] != x {
+				continue
+			}
+			lastIndex = i
+
+			n--
+			if n <= 0 {
+				return i
+			}
+		}
+
+	} else {
+
+		for i := startIndex; i >= 0; i-- {
+
+			if arr[i] != x {
+				continue
+			}
+			lastIndex = i
+
+			n++
+			if n >= 0 {
+				return i
+			}
+		}
+	}
+
+	return lastIndex
+}
+
+func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastIndex, lastSize int64) {
+
+	lastIndex = -1
+	lastSize = 0
+	if n >= 0 {
+		// @Note we should ignore zero width glyphs
+		// @Note is this better in glyphs package?
+		bytesSeen := int64(0)
+		arrSize := int64(len(arr))
+		charsSeenThisLine := int64(0)
+		for startIndex+bytesSeen < arrSize {
+
+			r, size := utf8.DecodeRune(arr[startIndex+bytesSeen:])
+			if r == utf8.RuneError {
+				break
+			}
+
+			charsSeenThisLine++
+			bytesSeen += int64(size)
+
+			// If this is true we covered one line
+			if charsSeenThisLine == charsPerLine || r == '\n' {
+
+				charsSeenThisLine = 0
+				lastSize = int64(size)
+				lastIndex = startIndex + bytesSeen
+
+				n--
+				if n <= 0 {
+					break
+				}
+			}
+		}
+
+	} else {
+
+		bytesSeen := int64(0)
+		charsSeenThisLine := int64(0)
+		for startIndex-bytesSeen > 0 {
+
+			r, size := utf8.DecodeLastRune(arr[:startIndex-bytesSeen+1])
+			if r == utf8.RuneError {
+				break
+			}
+
+			charsSeenThisLine++
+			bytesSeen += int64(size)
+
+			// If this is true we covered one line
+			if charsSeenThisLine == charsPerLine || r == '\n' {
+
+				charsSeenThisLine = 0
+				lastSize = int64(size)
+				lastIndex = startIndex - bytesSeen + 1 + lastSize
+
+				n++
+				if n >= 0 {
+					break
+				}
+			}
+		}
+
+		// Handle reaching beginning before finding nth line
+		if startIndex-bytesSeen == 0 {
+			return 0, 0
+		}
+	}
+
+	return lastIndex, lastSize
 }
