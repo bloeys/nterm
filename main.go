@@ -284,11 +284,9 @@ func (p *program) MainUpdate() {
 		var newPosNewLines int64
 		w, _ := p.GridSize()
 		if mouseWheelYNorm < 0 {
-			// @TODO This is wrong because it deals with data as a normal array while its a ring buffer
-
-			newPosNewLines, _ = find_n_lines_index(p.textBuf.Data, p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, int64(w))
+			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, int64(w))
 		} else {
-			newPosNewLines, _ = find_n_lines_index(p.textBuf.Data, p.scrollPos, p.scrollSpd*mouseWheelYNorm, int64(w))
+			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, int64(w))
 		}
 
 		p.scrollPos = clamp(newPosNewLines, 0, p.textBuf.Len)
@@ -831,22 +829,36 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 //
 // Note: When moving backwards from the start of the line, the first char will be a new line (e.g. \n), so the first counted line is not a full line
 // but only a single rune. So in most cases to get '-n' lines backwards you should request '-n-1' lines.
-func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastIndex, lastSize int64) {
+func find_n_lines_index_iterator(it ring.Iterator[byte], startIndex, n, charsPerLine int64) (newIndex, newSize int64) {
 
-	lastIndex = -1
-	lastSize = 0
+	// If nothing changes (e.g. already at end of iterator) then we will stay at the same place
+
+	done := false
+	read := 0
+	bytesToKeep := 0
+	buf := make([]byte, 4)
+	it.GotoIndex(startIndex)
+
+	// @Note we should ignore zero width glyphs
+	// @Note is this better in glyphs package?
+	bytesSeen := int64(0)
+	charsSeenThisLine := int64(0)
+
 	if n >= 0 {
-		// @Note we should ignore zero width glyphs
-		// @Note is this better in glyphs package?
-		bytesSeen := int64(0)
-		arrSize := int64(len(arr))
-		charsSeenThisLine := int64(0)
-		for startIndex+bytesSeen < arrSize {
 
-			r, size := utf8.DecodeRune(arr[startIndex+bytesSeen:])
+		// If nothing changes (e.g. already at end of iterator) then we will stay at the same place
+		newIndex = startIndex
+
+		for !done || bytesToKeep > 0 {
+
+			read, done = it.NextN(buf[bytesToKeep:], 4)
+
+			r, size := utf8.DecodeRune(buf[:bytesToKeep+read])
 			if r == utf8.RuneError {
 				break
 			}
+			bytesToKeep += read - size
+			copy(buf, buf[size:size+bytesToKeep])
 
 			charsSeenThisLine++
 			bytesSeen += int64(size)
@@ -855,8 +867,8 @@ func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastInde
 			if charsSeenThisLine == charsPerLine || r == '\n' {
 
 				charsSeenThisLine = 0
-				lastSize = int64(size)
-				lastIndex = startIndex + bytesSeen
+				newSize = int64(size)
+				newIndex = startIndex + bytesSeen
 
 				n--
 				if n <= 0 {
@@ -867,14 +879,16 @@ func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastInde
 
 	} else {
 
-		bytesSeen := int64(0)
-		charsSeenThisLine := int64(0)
-		for startIndex-bytesSeen > 0 {
+		for !done || bytesToKeep > 0 {
 
-			r, size := utf8.DecodeLastRune(arr[:startIndex-bytesSeen+1])
+			read, done = it.PrevN(buf[bytesToKeep:], 4)
+
+			r, size := utf8.DecodeRune(buf[:bytesToKeep+read])
 			if r == utf8.RuneError {
 				break
 			}
+			bytesToKeep += read - size
+			copy(buf, buf[size:size+bytesToKeep])
 
 			charsSeenThisLine++
 			bytesSeen += int64(size)
@@ -883,8 +897,8 @@ func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastInde
 			if charsSeenThisLine == charsPerLine || r == '\n' {
 
 				charsSeenThisLine = 0
-				lastSize = int64(size)
-				lastIndex = startIndex - bytesSeen + 1 + lastSize
+				newSize = int64(size)
+				newIndex = startIndex - bytesSeen + newSize
 
 				n++
 				if n >= 0 {
@@ -893,11 +907,12 @@ func find_n_lines_index(arr []byte, startIndex, n, charsPerLine int64) (lastInde
 			}
 		}
 
-		// Handle reaching beginning before finding nth line
+		// If we reached beginning of buffer before finding a new line then newIndex is zero
 		if startIndex-bytesSeen == 0 {
-			return 0, 0
+			newIndex = 0
+			newSize = 0
 		}
 	}
 
-	return lastIndex, lastSize
+	return newIndex, newSize
 }

@@ -143,6 +143,10 @@ type Iterator[T any] struct {
 	InV1 bool
 }
 
+func (it *Iterator[T]) Len() int64 {
+	return int64(len(it.V1) + len(it.V2))
+}
+
 // Next returns the value at Iterator.Curr and done=false
 //
 // If there are no more values to return the default value is returned for v and done=true
@@ -196,6 +200,63 @@ func (it *Iterator[T]) Prev() (v T, done bool) {
 	v = it.V2[it.Curr]
 
 	return v, false
+}
+
+// NextN calls Next() up to n times and places the result in the passed buffer.
+// 'read' is the actual number of elements put in the buffer.
+// We might not be able to put 'n' elements because the buffer is too small or because there aren't enough remaining elements
+func (it *Iterator[T]) NextN(buf []T, n int) (read int, done bool) {
+
+	if n > len(buf) {
+		n = len(buf)
+	}
+
+	var v T
+	for v, done = it.Next(); !done; v, done = it.Next() {
+
+		buf[read] = v
+		read++
+
+		// We must break inside the loop not in the 'for' check because
+		// if we check part of the loop and break before done=true we will waste the last
+		// value
+		n--
+		if n == 0 {
+			break
+		}
+	}
+
+	return read, done
+}
+
+// PrevN calls Prev() up to n times and places the result in the passed buffer in the order they are read from Prev().
+// That is, the first Prev() call is put into index 0, second Prev() call is in index 1, and so on,
+// similar to if you were doing a reverse loop on an array.
+//
+// 'read' is the actual number of elements put in the buffer.
+// We might not be able to put 'n' elements because the buffer is too small or because there aren't enough remaining elements
+func (it *Iterator[T]) PrevN(buf []T, n int) (read int, done bool) {
+
+	if n > len(buf) {
+		n = len(buf)
+	}
+
+	var v T
+	for v, done = it.Prev(); !done; v, done = it.Prev() {
+
+		buf[read] = v
+		read++
+
+		// We must break inside the loop not in the 'for' check because
+		// if we check part of the loop and break before done=true we will waste the last
+		// value
+		n--
+		if n == 0 {
+			break
+		}
+	}
+
+	return read, done
 }
 
 // GotoStart adjusts the iterator such that the following Next() call returns the value at index=0

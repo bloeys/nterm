@@ -176,6 +176,28 @@ func TestIterator(t *testing.T) {
 		got = append(got, v)
 	}
 	CheckArr(t, ans, got)
+
+	// NextN
+	got = make([]int, 2)
+	ans = []int{3, 4}
+	it.GotoStart()
+	it.NextN(got, 2)
+	CheckArr(t, ans, got)
+
+	ans = []int{5, 6}
+	it.NextN(got, 2)
+	CheckArr(t, ans, got)
+
+	// PrevN
+	got = make([]int, 2)
+	ans = []int{6, 5}
+	it.GotoEnd()
+	it.PrevN(got, 2)
+	CheckArr(t, ans, got)
+
+	ans = []int{4, 3}
+	it.PrevN(got, 2)
+	CheckArr(t, ans, got)
 }
 
 func Check[T comparable](t *testing.T, expected, got T) {
