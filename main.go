@@ -20,6 +20,7 @@ import (
 	"github.com/bloeys/nmage/renderer/rend3dgl"
 	"github.com/bloeys/nmage/timing"
 	nmageimgui "github.com/bloeys/nmage/ui/imgui"
+	"github.com/bloeys/nterm/ansi"
 	"github.com/bloeys/nterm/assert"
 	"github.com/bloeys/nterm/consts"
 	"github.com/bloeys/nterm/glyphs"
@@ -271,7 +272,6 @@ var sepLinePos = gglm.NewVec3(0, 0, 0)
 
 func (p *program) MainUpdate() {
 
-	// Return
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
 		p.WriteToCmdBuf([]rune{'\n'})
 		p.HandleReturn()
@@ -387,7 +387,7 @@ func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 	for {
 
-		index, code := NextAnsiCode(bs)
+		index, code := ansi.NextAnsiCode(bs)
 		if index == -1 {
 			draw(bytesToRunes(bs))
 			break
@@ -398,8 +398,8 @@ func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 		draw(before)
 
 		//Apply code
-		info := InfoFromAnsiCode(code)
-		if info.Options&AnsiCodeOptions_ColorFg != 0 {
+		info := ansi.InfoFromAnsiCode(code)
+		if info.Options&ansi.AnsiCodeOptions_ColorFg != 0 {
 
 			if info.Info1.X() == -1 {
 				currColor = p.Settings.DefaultColor
@@ -521,9 +521,15 @@ func (p *program) HandleReturn() {
 	p.cmdBufLen = 0
 	p.cursorCharIndex = 0
 
+	// @PERF
+	cmdStr := string(cmdRunes)
+	cmdBytes := []byte(cmdStr)
+	p.WriteToTextBuf(cmdBytes)
+
 	if p.activeCmd != nil {
 
-		_, err := p.activeCmd.Stdin.Write([]byte(string(cmdRunes)))
+		// println("Wrote:", string(cmdBytes))
+		_, err := p.activeCmd.Stdin.Write(cmdBytes)
 		if err != nil {
 			p.WriteToTextBuf([]byte(fmt.Sprintf("Writing to stdin pipe of '%s' failed. Error: %s\n", p.activeCmd.C.Path, err.Error())))
 			p.ClearActiveCmd()
@@ -533,12 +539,7 @@ func (p *program) HandleReturn() {
 		return
 	}
 
-	// @PERF
-	p.WriteToTextBuf([]byte(string(cmdRunes)))
-
-	cmdStr := strings.TrimSpace(string(cmdRunes))
-	cmdSplit := strings.Split(cmdStr, " ")
-
+	cmdSplit := strings.Split(strings.TrimSpace(cmdStr), " ")
 	cmdName := cmdSplit[0]
 	var args []string
 	if len(cmdSplit) >= 2 {

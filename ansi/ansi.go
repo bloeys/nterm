@@ -1,4 +1,4 @@
-package main
+package ansi
 
 import (
 	"bytes"
@@ -105,12 +105,13 @@ const (
 )
 
 var (
-	// represents the string: \x1b
-	AnsiEscBytes = []byte{'\\', 'x', '1', 'b'}
+	AnsiEscByte = byte('\x1b')
+	// AnsiEscStringBytes = []byte{'\\', 'x', '1', 'b'} // represents the string: \x1b
 
-	// represents the string: \x1b[
-	AnsiCSIBytes    = []byte{'\\', 'x', '1', 'b', '['}
+	AnsiCSIBytes    = []byte{'\x1b', '['}
 	AnsiCSIBytesLen = len(AnsiCSIBytes)
+	// AnsiCSIStringBytes    = []byte{'\\', 'x', '1', 'b', '['} // represents the string: \x1b[
+	// AnsiCSIStringBytesLen = len(AnsiCSIStringBytes)
 )
 
 type AnsiCodeOptions int64
