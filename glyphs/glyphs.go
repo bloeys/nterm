@@ -127,7 +127,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color 
 	return *pos
 }
 
-// @TODO: Debug
+// @Debug
 var PrintPositions bool
 
 func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {

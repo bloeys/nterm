@@ -6,9 +6,11 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"runtime"
 	"runtime/pprof"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -273,6 +275,7 @@ var sepLinePos = gglm.NewVec3(0, 0, 0)
 func (p *program) MainUpdate() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
+		p.cursorCharIndex = p.cmdBufLen // This is so \n is written to the end of the cmdBuf
 		p.WriteToCmdBuf([]rune{'\n'})
 		p.HandleReturn()
 	}
@@ -514,7 +517,6 @@ func (p *program) DeleteNextChar() {
 	p.cmdBufLen--
 }
 
-// @TODO: Handle double quotes not being sent properly to cmd
 func (p *program) HandleReturn() {
 
 	cmdRunes := p.cmdBuf[:p.cmdBufLen]
@@ -547,6 +549,11 @@ func (p *program) HandleReturn() {
 	}
 
 	cmd := exec.Command(cmdName, args...)
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			CmdLine: strings.TrimSpace(cmdStr),
+		}
+	}
 
 	outPipe, err := cmd.StdoutPipe()
 	if err != nil {
