@@ -73,8 +73,10 @@ type program struct {
 	lastCmdCharPos *gglm.Vec3
 	scrollPos      int64
 	scrollSpd      int64
-	maxCharsToShow int64
-	maxLinesToShow int64
+
+	CellCountX int64
+	CellCountY int64
+	CellCount  int64
 
 	activeCmd *Cmd
 	Settings  *Settings
@@ -90,13 +92,12 @@ const (
 	defaultCmdBufSize  = 4 * 1024
 	defaultTextBufSize = 4 * 1024 * 1024
 
-	defaultScrollSpd = 5
+	defaultScrollSpd = 1
 )
 
 var (
-	// isDrawingBounds = false
-	drawManyLines = false
 	drawGrid      bool
+	drawManyLines = false
 
 	textToShow = ""
 
@@ -249,7 +250,7 @@ func (p *program) WriteToTextBuf(text []byte) {
 	// This is locked because running cmds are potentially writing to it same time we are
 	p.textBufMutex.Lock()
 	p.textBuf.Write(text...)
-	p.scrollPos = clamp(p.textBuf.Len-p.maxCharsToShow, 0, p.textBuf.Len-1)
+	p.scrollPos = clamp(p.textBuf.Len-p.CellCount, 0, p.textBuf.Len-1)
 	p.textBufMutex.Unlock()
 }
 
@@ -296,13 +297,16 @@ func (p *program) MainUpdate() {
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
 		var newPosNewLines int64
-		w, _ := p.GridSize()
 		if mouseWheelYNorm < 0 {
-			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, int64(w))
+			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, p.CellCountX)
 		} else {
-			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, int64(w))
+			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, p.CellCountX)
 		}
 
+		a := p.textBuf.AbsIndex(uint64(p.scrollPos))
+		b := p.textBuf.AbsIndex(uint64(newPosNewLines))
+		println("was at:", a, "; Now at:", b)
+		// assert.T(p.textBuf.Get(uint64(newPosNewLines)) != '\n', fmt.Sprintf("Original AbsIndex %d; New line at AbsIndex %d\n", a, b))
 		p.scrollPos = clamp(newPosNewLines, 0, p.textBuf.Len)
 	}
 
@@ -317,18 +321,19 @@ func (p *program) MainUpdate() {
 	}
 
 	// Draw textBuf
-	v1, v2 := p.textBuf.Views()
+	from := p.scrollPos
+	to, _ := find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.CellCountY-2, p.CellCountX)
 
-	from := clamp(p.scrollPos, 0, int64(len(v1)-1))
-	to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v1)-1))
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1[from:to], *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
-
-	if p.scrollPos >= int64(len(v1)) {
-
-		from := clamp(p.scrollPos-int64(len(v1)), 0, int64(len(v2)-1))
-		to := clamp(p.scrollPos+p.maxCharsToShow, 0, int64(len(v2)-1))
-		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2[from:to], *p.lastCmdCharPos).Data
+	// to is the first character after the nth line. Passing this index to ViewsFromTo will show 1 more char than we want,
+	// so we decrement if needed
+	if to > 0 {
+		to--
 	}
+	assert.T(to >= 0, "'to' was less than zero")
+	v1, v2 := p.textBuf.ViewsFromTo(uint64(from), uint64(to))
+
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2, *p.lastCmdCharPos).Data
 
 	sepLinePos.Data = p.lastCmdCharPos.Data
 
@@ -673,8 +678,9 @@ func (p *program) DrawCursor() {
 	p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
 }
 
-func (p *program) GridSize() (w, h int32) {
-	return p.GlyphRend.ScreenWidth / int32(p.GlyphRend.Atlas.SpaceAdvance), p.GlyphRend.ScreenHeight / int32(p.GlyphRend.Atlas.LineHeight)
+// GridSize returns how many cells horizontally (aka chars per line) and how many cells vertically (aka lines)
+func (p *program) GridSize() (w, h int64) {
+	return int64(p.GlyphRend.ScreenWidth) / int64(p.GlyphRend.Atlas.SpaceAdvance), int64(p.GlyphRend.ScreenHeight) / int64(p.GlyphRend.Atlas.LineHeight)
 }
 
 func (p *program) ScreenPosToGridPos(screenPos *gglm.Vec3) {
@@ -790,9 +796,8 @@ func (p *program) HandleWindowResize() {
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 	p.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
 
-	// We show a bit more than calculated to be safe against showing empty space
-	p.maxLinesToShow = int64(CeilF32(float32(h)/float32(p.GlyphRend.Atlas.LineHeight)) * 1.25)
-	p.maxCharsToShow = int64(CeilF32(float32(w)/float32(p.GlyphRend.Atlas.SpaceAdvance))*1.25) * p.maxLinesToShow
+	p.CellCountX, p.CellCountY = p.GridSize()
+	p.CellCount = p.CellCountX * p.CellCountY
 }
 
 func FloorF32(x float32) float32 {
@@ -874,7 +879,7 @@ func find_n_lines_index_iterator(it ring.Iterator[byte], startIndex, n, charsPer
 	buf := make([]byte, 4)
 	it.GotoIndex(startIndex)
 
-	// @Note we should ignore zero width glyphs
+	// @Todo we should ignore zero width glyphs
 	// @Note is this better in glyphs package?
 	bytesSeen := int64(0)
 	charsSeenThisLine := int64(0)
@@ -914,6 +919,8 @@ func find_n_lines_index_iterator(it ring.Iterator[byte], startIndex, n, charsPer
 
 	} else {
 
+		// @Todo this has wrong behavior when dealing with wrapped lines because we don't know what X position to be in
+		// after going up a line. Are we in the middle of the line?
 		for !done || bytesToKeep > 0 {
 
 			read, done = it.PrevN(buf[bytesToKeep:], 4)

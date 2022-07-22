@@ -91,9 +91,24 @@ func clamp[T constraints.Ordered](x, min, max T) T {
 	return x
 }
 
+// Get returns the element at the index relative from Buffer.Start
+// If there are no elements then the default value of T is returned
+func (b *Buffer[T]) Get(index uint64) (val T) {
+
+	if index >= uint64(b.Len) {
+		return val
+	}
+
+	return b.Data[(b.Start+int64(index))%b.Cap]
+}
+
+func (b *Buffer[T]) AbsIndex(relIndex uint64) uint64 {
+	return uint64((b.Start + int64(relIndex)) % b.Cap)
+}
+
 // Views returns two slices that have 'Len' elements in total between them.
 // The first slice is from Start till min(Start+Len, Cap). If Start+Len<=Cap then the first slice contains all the data and the second is empty.
-// If Start+Len>Cap then the first slice contains the data from Start till Cap, and the second slice contains data from Zero till Start+Len-Cap (basically the remaining elements to reach Len in total)
+// If Start+Len>Cap then the first slice contains the data from Start till Cap, and the second slice contains data from 0 till Start+Len-Cap (basically the remaining elements to reach Len in total)
 //
 // This function does NOT copy. Any changes on the returned slices will reflect on the buffer Data
 //
@@ -109,15 +124,49 @@ func (b *Buffer[T]) Views() (v1, v2 []T) {
 	return
 }
 
-func (b *Buffer[T]) Iterator() Iterator[T] {
+func (b *Buffer[T]) ViewsFromTo(fromIndex, toIndex uint64) (v1, v2 []T) {
 
-	v1, v2 := b.Views()
-	return Iterator[T]{
-		V1:   v1,
-		V2:   v2,
-		Curr: 0,
-		InV1: true,
+	toIndex++ // We convert the index into a length (e.g. from=0, to=0 is from=0, len=1)
+	if toIndex <= fromIndex || fromIndex >= uint64(b.Len) {
+		return []T{}, []T{}
 	}
+
+	v1, v2 = b.Views()
+	v1Len := uint64(len(v1))
+	v2Len := uint64(len(v2))
+	startInV1 := fromIndex < v1Len
+
+	if startInV1 {
+
+		if toIndex <= v1Len {
+			v1 = v1[fromIndex:toIndex]
+			v2 = v2[:0]
+			return
+		}
+
+		toIndex -= v1Len
+		if toIndex > v2Len {
+			toIndex = v2Len
+		}
+
+		v1 = v1[fromIndex:v1Len]
+		v2 = v2[:toIndex]
+		return
+	}
+
+	fromIndex -= v1Len - 1
+	toIndex -= v1Len
+	if toIndex >= v2Len {
+		toIndex = v2Len
+	}
+
+	v1 = v1[:0]
+	v2 = v2[fromIndex:toIndex]
+	return
+}
+
+func (b *Buffer[T]) Iterator() Iterator[T] {
+	return NewIterator(b)
 }
 
 func NewBuffer[T any](capacity uint64) *Buffer[T] {
@@ -263,7 +312,7 @@ func (it *Iterator[T]) PrevN(buf []T, n int) (read int, done bool) {
 // and the next Prev() call returns done=true
 func (it *Iterator[T]) GotoStart() {
 	it.Curr = 0
-	it.InV1 = true
+	it.InV1 = len(it.V1) > 0
 }
 
 // GotoIndex goes to the index n relative to Buffer.Start
@@ -296,4 +345,14 @@ func (it *Iterator[T]) GotoIndex(n int64) {
 func (it *Iterator[T]) GotoEnd() {
 	it.Curr = int64(len(it.V2))
 	it.InV1 = false
+}
+
+func NewIterator[T any](b *Buffer[T]) Iterator[T] {
+	v1, v2 := b.Views()
+	return Iterator[T]{
+		V1:   v1,
+		V2:   v2,
+		Curr: 0,
+		InV1: len(v1) > 0, // If buffer is empty we shouldn't be in V1
+	}
 }

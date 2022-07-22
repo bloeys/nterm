@@ -87,6 +87,78 @@ func TestRing(t *testing.T) {
 	b2.DeleteN(2, 1)
 	Check(t, 3, b2.Len)
 	CheckArr(t, []int{5, 6, 8, 8}, b2.Data)
+
+	// ViewsFromTo
+	b2 = ring.NewBuffer[int](4)
+
+	v11, v22 := b2.ViewsFromTo(0, 0)
+	Check(t, 0, len(v11))
+	Check(t, 0, len(v22))
+
+	b2.Write(1, 2, 3, 4)
+
+	v11, v22 = b2.ViewsFromTo(5, 0)
+	Check(t, 0, len(v11))
+	Check(t, 0, len(v22))
+
+	v11, v22 = b2.ViewsFromTo(0, 0)
+	Check(t, 1, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{1}, v11)
+
+	v11, v22 = b2.ViewsFromTo(0, 1)
+	Check(t, 2, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{1, 2}, v11)
+
+	v11, v22 = b2.ViewsFromTo(0, 3)
+	Check(t, 4, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{1, 2, 3, 4}, v11)
+
+	v11, v22 = b2.ViewsFromTo(0, 4)
+	Check(t, 4, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{1, 2, 3, 4}, v11)
+
+	v11, v22 = b2.ViewsFromTo(0, 40)
+	Check(t, 4, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{1, 2, 3, 4}, v11)
+
+	v11, v22 = b2.ViewsFromTo(3, 40)
+	Check(t, 1, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{4}, v11)
+
+	b2.Write(5, 6)
+
+	v11, v22 = b2.ViewsFromTo(3, 40)
+	Check(t, 0, len(v11))
+	Check(t, 0, len(v22))
+
+	v11, v22 = b2.ViewsFromTo(1, 2)
+	Check(t, 1, len(v11))
+	Check(t, 1, len(v22))
+	CheckArr(t, []int{4}, v11)
+	CheckArr(t, []int{5}, v22)
+
+	v11, v22 = b2.ViewsFromTo(0, 1)
+	Check(t, 2, len(v11))
+	Check(t, 0, len(v22))
+	CheckArr(t, []int{3, 4}, v11)
+
+	v11, v22 = b2.ViewsFromTo(0, 2)
+	Check(t, 2, len(v11))
+	Check(t, 1, len(v22))
+	CheckArr(t, []int{3, 4}, v11)
+	CheckArr(t, []int{5}, v22)
+
+	v11, v22 = b2.ViewsFromTo(0, 3)
+	Check(t, 2, len(v11))
+	Check(t, 2, len(v22))
+	CheckArr(t, []int{3, 4}, v11)
+	CheckArr(t, []int{5, 6}, v22)
 }
 
 func TestIterator(t *testing.T) {
@@ -198,6 +270,23 @@ func TestIterator(t *testing.T) {
 	ans = []int{4, 3}
 	it.PrevN(got, 2)
 	CheckArr(t, ans, got)
+
+	// Empty buffer
+	b = ring.NewBuffer[int](4)
+
+	it = b.Iterator()
+	Check(t, 0, len(it.V1))
+	Check(t, 0, len(it.V2))
+	Check(t, false, it.InV1)
+
+	it.GotoStart()
+	Check(t, false, it.InV1)
+
+	it.GotoIndex(1)
+	Check(t, false, it.InV1)
+
+	_, done := it.Next()
+	Check(t, true, done)
 }
 
 func Check[T comparable](t *testing.T, expected, got T) {

@@ -13,6 +13,13 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+# Custom
 *.png
 *.cpu
+
 1gb.txt
+1gb.bin
+
+test.txt
+long-line.txt

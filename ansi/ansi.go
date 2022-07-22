@@ -295,7 +295,7 @@ func ParseSGRArgs(info *AnsiCodeInfo, args []byte) {
 
 		// @TODO Support bold/underline etc
 		// @TODO Support 256 and RGB colors
-		panic("Code not supported yet: " + fmt.Sprint(intCode))
+		println("Code not supported yet: " + fmt.Sprint(intCode))
 	}
 }
 

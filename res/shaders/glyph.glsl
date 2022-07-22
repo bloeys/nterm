@@ -47,7 +47,7 @@ uniform int drawBounds;
 void main()
 {
     vec4 texColor = texelFetch(diffTex, ivec2(v2fUV0), 0);
-    // This commented out part highlights the full region of the char
+    // This part highlights the full region of the char
     if (texColor.r == 0 && drawBounds != 0)
     {
         fragColor = vec4(0,1,0,0.25);
