@@ -33,6 +33,9 @@ import (
 type Settings struct {
 	DefaultColor gglm.Vec4
 	StringColor  gglm.Vec4
+
+	MaxFps   int
+	LimitFps bool
 }
 
 type Cmd struct {
@@ -72,6 +75,8 @@ type program struct {
 
 	activeCmd *Cmd
 	Settings  *Settings
+
+	frameStartTime time.Time
 }
 
 const (
@@ -109,7 +114,9 @@ func main() {
 		panic("Failed to create window. Err: " + err.Error())
 	}
 
-	engine.SetVSync(true)
+	// We do our own fps limiting because (at least some) drivers vsync by doing a busy loop and spiking
+	// CPU to 100% doing nothing instead of a sleep
+	engine.SetVSync(false)
 
 	p := &program{
 		win:       win,
@@ -129,6 +136,8 @@ func main() {
 		Settings: &Settings{
 			DefaultColor: *gglm.NewVec4(1, 1, 1, 1),
 			StringColor:  *gglm.NewVec4(242/255.0, 244/255.0, 10/255.0, 1),
+			MaxFps:       120,
+			LimitFps:     true,
 		},
 	}
 
@@ -196,6 +205,8 @@ func (p *program) Init() {
 }
 
 func (p *program) Update() {
+
+	p.frameStartTime = time.Now()
 
 	if input.IsQuitClicked() || input.KeyClicked(sdl.K_ESCAPE) {
 		engine.Quit()
@@ -705,10 +716,10 @@ func (p *program) DebugRender() {
 		p.DrawGrid()
 	}
 
+	fps := int(timing.GetAvgFPS())
 	if len(textToShow) > 0 {
 		str := textToShow
 		charCount := len([]rune(str))
-		fps := int(timing.GetAvgFPS())
 		if drawManyLines {
 			const charsPerFrame = 500_000
 			for i := 0; i < charsPerFrame/charCount; i++ {
@@ -720,6 +731,8 @@ func (p *program) DebugRender() {
 			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
 			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 		}
+	} else {
+		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps))
 	}
 }
 
@@ -742,6 +755,20 @@ func (p *program) DrawGrid() {
 
 func (p *program) FrameEnd() {
 	assert.T(p.cursorCharIndex <= p.cmdBufLen, fmt.Sprintf("Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", p.cursorCharIndex, p.cmdBufLen))
+
+	if p.Settings.LimitFps {
+
+		elapsed := time.Since(p.frameStartTime)
+		microSecondsPerFrame := int64(1 / float32(p.Settings.MaxFps) * 1000_000)
+
+		// Sleep time is reduced by a millisecond to compensate for the (nearly) inevitable over-sleeping that will happen.
+		timeToSleep := time.Duration((microSecondsPerFrame - elapsed.Microseconds()) * 1000)
+		timeToSleep -= 1000 * time.Microsecond
+
+		if timeToSleep.Milliseconds() > 0 {
+			time.Sleep(timeToSleep)
+		}
+	}
 }
 
 func (p *program) DeInit() {
