@@ -9,11 +9,16 @@ type Buffer[T any] struct {
 	Start int64
 	Len   int64
 	Cap   int64
+
+	// WrittenElements is the total number of elements written to the buffer over its lifetime.
+	// Can be bigger than Cap
+	WrittenElements uint64
 }
 
 func (b *Buffer[T]) Write(x ...T) {
 
 	inLen := int64(len(x))
+	b.WrittenElements += uint64(inLen)
 
 	for len(x) > 0 {
 
@@ -42,40 +47,6 @@ func (b *Buffer[T]) Clear() {
 
 func (b *Buffer[T]) IsFull() bool {
 	return b.Len == b.Cap
-}
-
-//Insert inserts the given elements starting at the provided index.
-//
-//Note: Insert is a no-op if the buffer is full or doesn't have enough place for the elements
-func (b *Buffer[T]) Insert(index uint64, x ...T) {
-
-	delta := int64(len(x))
-	newLen := b.Len + delta
-	if newLen > b.Cap {
-		return
-	}
-
-	copy(b.Data[b.Start+int64(index)+delta:], b.Data[index:])
-	copy(b.Data[index:], x)
-	b.Len = newLen
-}
-
-//DeleteN removes 'n' elements starting at the provided index.
-//
-//Note DeleteN is a no-op if Len==0 or if buffer is full with start>0
-func (b *Buffer[T]) DeleteN(delStartIndex, n uint64) {
-
-	if b.Len == 0 {
-		return
-	}
-
-	if b.Len == b.Cap && b.Start > 0 {
-		return
-	}
-
-	relStartIndex := b.Start + int64(delStartIndex)
-	copy(b.Data[relStartIndex:], b.Data[relStartIndex+int64(n):])
-	b.Len = clamp(b.Len-int64(n), 0, b.Cap)
 }
 
 func clamp[T constraints.Ordered](x, min, max T) T {

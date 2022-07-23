@@ -48,6 +48,10 @@ type Cmd struct {
 	Stderr io.ReadCloser
 }
 
+type Line struct {
+	StartIndex, EndIndex uint64
+}
+
 var _ engine.Game = &program{}
 
 type program struct {
@@ -62,6 +66,7 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
+	Lines        []Line
 	textBuf      *ring.Buffer[byte]
 	textBufMutex sync.Mutex
 
@@ -128,6 +133,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
+		Lines:   make([]Line, defaultTextBufSize),
 		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
 		cursorCharIndex: 0,
@@ -294,7 +300,6 @@ func (p *program) MainUpdate() {
 		p.cursorCharIndex = p.cmdBufLen
 	}
 
-	// var a, b uint64
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
 		var newPosNewLines int64
@@ -304,10 +309,6 @@ func (p *program) MainUpdate() {
 			newPosNewLines, _ = findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, p.CellCountX)
 		}
 
-		// a = p.textBuf.AbsIndex(uint64(p.scrollPos))
-		// b = p.textBuf.AbsIndex(uint64(newPosNewLines))
-		// fmt.Printf("was at absIndex %d (char=%d); Now at absIndex %d (char=%d)\n", a, p.textBuf.Get(a), b, p.textBuf.Get(b))
-		// assert.T(p.textBuf.Get(uint64(newPosNewLines)) != '\n', fmt.Sprintf("Original AbsIndex %d; New line at AbsIndex %d\n", a, b))
 		p.scrollPos = clamp(newPosNewLines, 0, p.textBuf.Len)
 	}
 
@@ -619,7 +620,9 @@ func (p *program) HandleReturn() {
 			}
 
 			// @Todo We need to parse ansi codes as data is coming in to update the drawing settings (e.g. color)
-			p.WriteToTextBuf(buf[:readBytes])
+			b := buf[:readBytes]
+			p.ParseLines(b)
+			p.WriteToTextBuf(b)
 			// println("Read:", string(buf[:readBytes]))
 		}
 	}()
@@ -650,6 +653,10 @@ func (p *program) HandleReturn() {
 			p.WriteToTextBuf(buf[:readBytes])
 		}
 	}()
+}
+
+func (p *program) ParseLines(b []byte) {
+
 }
 
 func (p *program) ClearActiveCmd() {
@@ -922,7 +929,10 @@ func findNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 	} else {
 
 		// @Todo this has wrong behavior when dealing with wrapped lines because we don't know what X position to be in
-		// after going up a line. Are we in the middle of the line?
+		// after going up a line. Are we in the middle of the line? The only way to know is to draw from the start of this paragraph
+		// till the start index, which will allows us to get accurate information on wrapping.
+		//
+		// But this is bad if the paragraph is too big, so we should break paragraphs after a certain size
 		for !done || bytesToKeep > 0 {
 
 			read, done = it.PrevN(buf[bytesToKeep:], 4)
@@ -939,10 +949,6 @@ func findNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 
 			// If this is true we covered one line
 			if charsSeenThisLine == charsPerLine || r == '\n' {
-
-				if r == '\n' {
-					fmt.Printf("Found \\n at index %d\n", it.Curr)
-				}
 
 				charsSeenThisLine = 0
 				newSize = int64(size)
