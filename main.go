@@ -294,18 +294,19 @@ func (p *program) MainUpdate() {
 		p.cursorCharIndex = p.cmdBufLen
 	}
 
+	// var a, b uint64
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
 		var newPosNewLines int64
 		if mouseWheelYNorm < 0 {
-			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, p.CellCountX)
+			newPosNewLines, _ = findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, p.CellCountX)
 		} else {
-			newPosNewLines, _ = find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, p.CellCountX)
+			newPosNewLines, _ = findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, p.CellCountX)
 		}
 
-		a := p.textBuf.AbsIndex(uint64(p.scrollPos))
-		b := p.textBuf.AbsIndex(uint64(newPosNewLines))
-		println("was at:", a, "; Now at:", b)
+		// a = p.textBuf.AbsIndex(uint64(p.scrollPos))
+		// b = p.textBuf.AbsIndex(uint64(newPosNewLines))
+		// fmt.Printf("was at absIndex %d (char=%d); Now at absIndex %d (char=%d)\n", a, p.textBuf.Get(a), b, p.textBuf.Get(b))
 		// assert.T(p.textBuf.Get(uint64(newPosNewLines)) != '\n', fmt.Sprintf("Original AbsIndex %d; New line at AbsIndex %d\n", a, b))
 		p.scrollPos = clamp(newPosNewLines, 0, p.textBuf.Len)
 	}
@@ -322,14 +323,14 @@ func (p *program) MainUpdate() {
 
 	// Draw textBuf
 	from := p.scrollPos
-	to, _ := find_n_lines_index_iterator(p.textBuf.Iterator(), p.scrollPos, p.CellCountY-2, p.CellCountX)
+	to, _ := findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.CellCountY-2, p.CellCountX)
+	assert.T(to >= 0, "'to' was less than zero")
 
 	// to is the first character after the nth line. Passing this index to ViewsFromTo will show 1 more char than we want,
 	// so we decrement if needed
 	if to > 0 {
 		to--
 	}
-	assert.T(to >= 0, "'to' was less than zero")
 	v1, v2 := p.textBuf.ViewsFromTo(uint64(from), uint64(to))
 
 	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
@@ -599,7 +600,7 @@ func (p *program) HandleReturn() {
 		}()
 
 		defer p.ClearActiveCmd()
-		buf := make([]byte, 1024)
+		buf := make([]byte, 4*1024)
 		for p.activeCmd != nil {
 
 			readBytes, err := p.activeCmd.Stdout.Read(buf)
@@ -617,6 +618,7 @@ func (p *program) HandleReturn() {
 				continue
 			}
 
+			// @Todo We need to parse ansi codes as data is coming in to update the drawing settings (e.g. color)
 			p.WriteToTextBuf(buf[:readBytes])
 			// println("Read:", string(buf[:readBytes]))
 		}
@@ -862,14 +864,14 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 	return lastIndex
 }
 
-// find_n_lines_index starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
+// findNLinesIndexIterator starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
 // then returns the index of the nth line and the size of char in bytes that preceeds the line.
 //
 // A line is counted when either a '\n' is seen or by seeing enough chars that a wrap is required.
 //
 // Note: When moving backwards from the start of the line, the first char will be a new line (e.g. \n), so the first counted line is not a full line
 // but only a single rune. So in most cases to get '-n' lines backwards you should request '-n-1' lines.
-func find_n_lines_index_iterator(it ring.Iterator[byte], startIndex, n, charsPerLine int64) (newIndex, newSize int64) {
+func findNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine int64) (newIndex, newSize int64) {
 
 	// If nothing changes (e.g. already at end of iterator) then we will stay at the same place
 
@@ -937,6 +939,10 @@ func find_n_lines_index_iterator(it ring.Iterator[byte], startIndex, n, charsPer
 
 			// If this is true we covered one line
 			if charsSeenThisLine == charsPerLine || r == '\n' {
+
+				if r == '\n' {
+					fmt.Printf("Found \\n at index %d\n", it.Curr)
+				}
 
 				charsSeenThisLine = 0
 				newSize = int64(size)

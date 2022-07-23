@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	DefaultGlyphsPerBatch = 16384
+	DefaultGlyphsPerBatch = 4 * 1024
 
 	floatsPerGlyph = 13
 	invalidRune    = unicode.ReplacementChar

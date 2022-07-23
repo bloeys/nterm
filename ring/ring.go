@@ -154,7 +154,7 @@ func (b *Buffer[T]) ViewsFromTo(fromIndex, toIndex uint64) (v1, v2 []T) {
 		return
 	}
 
-	fromIndex -= v1Len - 1
+	fromIndex -= v1Len
 	toIndex -= v1Len
 	if toIndex >= v2Len {
 		toIndex = v2Len
@@ -187,7 +187,9 @@ type Iterator[T any] struct {
 	V1 []T
 	V2 []T
 
-	// Curr is the index of the element that will be returned on Next()
+	// Curr is the index of the element that will be returned on Next(),
+	// which means it is an index into V1 or V2 and so is relative to Buffer.Start value at the time
+	// of creating this iterator instance
 	Curr int64
 	InV1 bool
 }

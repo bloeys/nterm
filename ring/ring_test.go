@@ -1,6 +1,7 @@
 package ring_test
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/bloeys/nterm/ring"
@@ -135,7 +136,8 @@ func TestRing(t *testing.T) {
 
 	v11, v22 = b2.ViewsFromTo(3, 40)
 	Check(t, 0, len(v11))
-	Check(t, 0, len(v22))
+	Check(t, 1, len(v22))
+	CheckArr(t, []int{6}, v22)
 
 	v11, v22 = b2.ViewsFromTo(1, 2)
 	Check(t, 1, len(v11))
@@ -158,6 +160,11 @@ func TestRing(t *testing.T) {
 	Check(t, 2, len(v11))
 	Check(t, 2, len(v22))
 	CheckArr(t, []int{3, 4}, v11)
+	CheckArr(t, []int{5, 6}, v22)
+
+	v11, v22 = b2.ViewsFromTo(2, 3)
+	Check(t, 0, len(v11))
+	Check(t, 2, len(v22))
 	CheckArr(t, []int{5, 6}, v22)
 }
 
@@ -291,21 +298,23 @@ func TestIterator(t *testing.T) {
 
 func Check[T comparable](t *testing.T, expected, got T) {
 	if got != expected {
-		t.Fatalf("Expected %v but got %v\n", expected, got)
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("Expected %v but got %v by test at line %d\n", expected, got, line)
 	}
 }
 
 func CheckArr[T comparable](t *testing.T, expected, got []T) {
 
+	_, _, line, _ := runtime.Caller(1)
 	if len(expected) != len(got) {
-		t.Fatalf("Expected %v but got %v\n", expected, got)
+		t.Fatalf("Expected %v but got %v by test at line %d\n", expected, got, line)
 		return
 	}
 
 	for i := 0; i < len(expected); i++ {
 
 		if expected[i] != got[i] {
-			t.Fatalf("Expected %v but got %v\n", expected, got)
+			t.Fatalf("Expected %v but got %v by test at line %d\n", expected, got, line)
 			return
 		}
 	}
