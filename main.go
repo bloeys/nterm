@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math"
@@ -667,19 +668,24 @@ func (p *program) HandleReturn() {
 
 func (p *program) ParseLines(bs []byte) {
 
-	for i := uint64(0); i < uint64(len(bs)); i++ {
+	checkedBytes := uint64(0)
+	for len(bs) > 0 {
 
-		b := bs[i]
-		if b == '\n' {
+		// IndexByte is assembly optimized for different platforms and is much faster than checking one byte at a time
+		index := bytes.IndexByte(bs, '\n')
+		if index == -1 {
+			break
+		}
+		bs = bs[index+1:]
 
-			if p.CurrLineValid {
-				p.CurrLine.EndIndex = p.textBuf.WrittenElements + i
-				p.WriteLine(&p.CurrLine)
-				p.CurrLine.StartIndex = p.textBuf.WrittenElements + i
-			} else {
-				p.CurrLine.StartIndex = p.textBuf.WrittenElements + i
-				p.CurrLineValid = true
-			}
+		checkedBytes += uint64(index + 1)
+		if p.CurrLineValid {
+			p.CurrLine.EndIndex = p.textBuf.WrittenElements + checkedBytes - 1
+			p.WriteLine(&p.CurrLine)
+			p.CurrLine.StartIndex = p.textBuf.WrittenElements + checkedBytes - 1
+		} else {
+			p.CurrLine.StartIndex = p.textBuf.WrittenElements + checkedBytes - 1
+			p.CurrLineValid = true
 		}
 	}
 }
