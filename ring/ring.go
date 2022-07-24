@@ -196,6 +196,16 @@ func (it *Iterator[T]) Next() (v T, done bool) {
 	return v, false
 }
 
+func (it *Iterator[T]) HasNext() bool {
+	hasNext := it.InV1 || it.Curr < int64(len(it.V2))
+	return hasNext
+}
+
+func (it *Iterator[T]) HasPrev() bool {
+	hasPrev := (!it.InV1 && it.Curr-1 >= 0) || (it.InV1 && it.Curr > 0)
+	return hasPrev
+}
+
 // Next returns the value at Iterator.Curr-1 and done=false
 //
 // If there are no more values to return the default value is returned for v and done=true

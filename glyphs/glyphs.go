@@ -74,15 +74,15 @@ func (gr *GlyphRend) DrawTextOpenGL01(text []rune, screenPos *gglm.Vec3, color *
 //DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
 //screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
 //Color is RGBA in the range [0,1].
-func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
+func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, startPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
 
 	runs := gr.TextRunsBuf[:]
 	gr.GetTextRuns(text, &runs)
 	if runs == nil {
-		return *screenPos
+		return *startPos
 	}
 
-	pos := screenPos.Clone()
+	drawPos := startPos.Clone()
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
 	bufIndex := gr.GlyphCount * floatsPerGlyph
 	for runIndex := 0; runIndex < len(runs); runIndex++ {
@@ -94,26 +94,39 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color 
 		if run.IsLtr {
 
 			for i := 0; i < len(run.Runes); i++ {
-				gr.drawRune(run, i, prevRune, screenPos, pos, color, lineHeightF32, &bufIndex)
+
+				if run.Runes[i] == '\n' {
+					drawPos.SetXYZ(startPos.X(), drawPos.Y()-lineHeightF32, startPos.Z())
+				}
+
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
-				if pos.X()+gr.Atlas.SpaceAdvance >= screenWidthF32 {
-					screenPos.SetY(screenPos.Y() - lineHeightF32)
-					*pos = *screenPos.Clone()
+				if drawPos.X()+gr.Atlas.SpaceAdvance >= screenWidthF32 {
+
+					drawPos.SetXYZ(startPos.X(), drawPos.Y()-lineHeightF32, startPos.Z())
+					// startPos.SetY(startPos.Y() - lineHeightF32)
+					// *drawPos = *startPos.Clone()
 				}
 			}
 
 		} else {
 
 			for i := len(run.Runes) - 1; i >= 0; i-- {
-				gr.drawRune(run, i, prevRune, screenPos, pos, color, lineHeightF32, &bufIndex)
+
+				if run.Runes[i] == '\n' {
+					drawPos.SetXYZ(startPos.X(), drawPos.Y()-lineHeightF32, startPos.Z())
+				}
+
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
-				if pos.X()+gr.Atlas.SpaceAdvance >= screenWidthF32 {
-					screenPos.SetY(screenPos.Y() - lineHeightF32)
-					*pos = *screenPos.Clone()
+				if drawPos.X()+gr.Atlas.SpaceAdvance >= screenWidthF32 {
+					drawPos.SetXYZ(startPos.X(), drawPos.Y()-lineHeightF32, startPos.Z())
+					// startPos.SetY(startPos.Y() - lineHeightF32)
+					// *drawPos = *startPos.Clone()
 				}
 			}
 
@@ -124,20 +137,146 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, screenPos *gglm.Vec3, color 
 		}
 	}
 
-	return *pos
+	return *drawPos
+}
+
+func (gr *GlyphRend) DrawTextOpenGLAbsRect(text []rune, rectTopLeft *gglm.Vec3, rectBotRight *gglm.Vec2, color *gglm.Vec4) gglm.Vec3 {
+
+	runs := gr.TextRunsBuf[:]
+	gr.GetTextRuns(text, &runs)
+	if runs == nil {
+		return *rectTopLeft
+	}
+
+	drawPos := rectTopLeft.Clone()
+	lineHeightF32 := float32(gr.Atlas.LineHeight)
+	bufIndex := gr.GlyphCount * floatsPerGlyph
+	for runIndex := 0; runIndex < len(runs); runIndex++ {
+
+		run := &runs[runIndex]
+		prevRune := invalidRune
+
+		if run.IsLtr {
+
+			for i := 0; i < len(run.Runes); i++ {
+
+				if run.Runes[i] == '\n' {
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+				}
+
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				prevRune = run.Runes[i]
+
+				//Wrap
+				if drawPos.X()+gr.Atlas.SpaceAdvance >= rectBotRight.X() {
+
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+					// rectTopLeft.SetY(rectTopLeft.Y() - lineHeightF32)
+					// *drawPos = *rectTopLeft.Clone()
+				}
+			}
+
+		} else {
+
+			for i := len(run.Runes) - 1; i >= 0; i-- {
+
+				if run.Runes[i] == '\n' {
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+				}
+
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				prevRune = run.Runes[i]
+
+				//Wrap
+				if drawPos.X()+gr.Atlas.SpaceAdvance >= rectBotRight.X() {
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+					// rectTopLeft.SetY(rectTopLeft.Y() - lineHeightF32)
+					// *drawPos = *rectTopLeft.Clone()
+				}
+			}
+
+		}
+
+		if consts.Mode_Debug && PrintPositions {
+			println("")
+		}
+	}
+
+	return *drawPos
+}
+
+func (gr *GlyphRend) DrawTextOpenGLAbsRectWithStartPos(text []rune, startPos, rectTopLeft *gglm.Vec3, rectBotRight *gglm.Vec2, color *gglm.Vec4) gglm.Vec3 {
+
+	runs := gr.TextRunsBuf[:]
+	gr.GetTextRuns(text, &runs)
+	if runs == nil {
+		return *startPos
+	}
+
+	drawPos := startPos.Clone()
+	lineHeightF32 := float32(gr.Atlas.LineHeight)
+	bufIndex := gr.GlyphCount * floatsPerGlyph
+	for runIndex := 0; runIndex < len(runs); runIndex++ {
+
+		run := &runs[runIndex]
+		prevRune := invalidRune
+
+		if run.IsLtr {
+
+			for i := 0; i < len(run.Runes); i++ {
+
+				if run.Runes[i] == '\n' {
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+				}
+
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				prevRune = run.Runes[i]
+
+				//Wrap
+				if drawPos.X()+gr.Atlas.SpaceAdvance >= rectBotRight.X() {
+
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+					// rectTopLeft.SetY(rectTopLeft.Y() - lineHeightF32)
+					// *drawPos = *rectTopLeft.Clone()
+				}
+			}
+
+		} else {
+
+			for i := len(run.Runes) - 1; i >= 0; i-- {
+
+				if run.Runes[i] == '\n' {
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+				}
+
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				prevRune = run.Runes[i]
+
+				//Wrap
+				if drawPos.X()+gr.Atlas.SpaceAdvance >= rectBotRight.X() {
+					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
+					// rectTopLeft.SetY(rectTopLeft.Y() - lineHeightF32)
+					// *drawPos = *rectTopLeft.Clone()
+				}
+			}
+
+		}
+
+		if consts.Mode_Debug && PrintPositions {
+			println("")
+		}
+	}
+
+	return *drawPos
 }
 
 // @Debug
 var PrintPositions bool
 
-func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, screenPos, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
+func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
 
 	r := run.Runes[i]
-	if r == '\n' {
-		screenPos.SetY(screenPos.Y() - lineHeightF32)
-		*pos = *screenPos.Clone()
-		return
-	} else if r == ' ' {
+	if r == ' ' {
 		pos.AddX(gr.Atlas.SpaceAdvance)
 		return
 	} else if r == '\t' {
@@ -398,9 +537,11 @@ func (gr *GlyphRend) Draw() {
 
 	//We need to disable depth testing so that nearby characters don't occlude each other
 	gl.Disable(gl.DEPTH_TEST)
+
 	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), int32(gr.GlyphCount))
-	gl.Enable(gl.DEPTH_TEST)
 	gr.GlyphCount = 0
+
+	gl.Enable(gl.DEPTH_TEST)
 }
 
 //SetFace updates the underlying font atlas used by the glyph renderer.

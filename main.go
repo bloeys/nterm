@@ -72,10 +72,10 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	CurrLine      Line
-	CurrLineValid bool
-	Lines         []Line
-	LineCount     uint64
+	CurrLine Line
+	// CurrLineValid bool
+
+	Lines *ring.Buffer[Line]
 
 	textBuf      *ring.Buffer[byte]
 	textBufMutex sync.Mutex
@@ -143,9 +143,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		Lines:         make([]Line, defaultTextBufSize),
-		LineCount:     0,
-		CurrLineValid: true,
+		Lines: ring.NewBuffer[Line](defaultTextBufSize),
 
 		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
@@ -270,8 +268,10 @@ func (p *program) WriteToTextBuf(text []byte) {
 	p.textBufMutex.Lock()
 	p.ParseLines(text)
 	p.textBuf.Write(text...)
-	p.scrollPos = clamp(p.textBuf.Len-p.CellCount, 0, p.textBuf.Len-1)
 	p.textBufMutex.Unlock()
+
+	// @Todo we need better handling here
+	p.scrollPos = clamp(p.Lines.Len-p.CellCountY+3, 0, p.Lines.Len)
 }
 
 func (p *program) WriteToCmdBuf(text []rune) {
@@ -316,14 +316,13 @@ func (p *program) MainUpdate() {
 
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
-		var newPosNewLines int64
 		if mouseWheelYNorm < 0 {
-			newPosNewLines, _ = findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm-1, p.CellCountX)
+			p.scrollPos--
 		} else {
-			newPosNewLines, _ = findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.scrollSpd*mouseWheelYNorm, p.CellCountX)
+			p.scrollPos++
 		}
 
-		p.scrollPos = clamp(newPosNewLines, 0, p.textBuf.Len)
+		p.scrollPos = clamp(p.scrollPos, 0, p.Lines.Len)
 	}
 
 	// Delete inputs
@@ -336,26 +335,27 @@ func (p *program) MainUpdate() {
 		p.DeleteNextChar()
 	}
 
+	// Line separator
+	sepLinePos.SetY(2 * p.GlyphRend.Atlas.LineHeight)
+
 	// Draw textBuf
-	from := p.scrollPos
-	to, _ := findNLinesIndexIterator(p.textBuf.Iterator(), p.scrollPos, p.CellCountY-2, p.CellCountX)
-	assert.T(to >= 0, "'to' was less than zero")
+	linesIt := p.Lines.Iterator()
+	linesIt.GotoIndex(p.scrollPos)
+	p.lastCmdCharPos.Data = gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0).Data
+	for v, done := linesIt.Next(); !done && p.lastCmdCharPos.Y() >= sepLinePos.Y(); v, done = linesIt.Next() {
 
-	// to is the first character after the nth line. Passing this index to ViewsFromTo will show 1 more char than we want,
-	// so we decrement if needed
-	if to > 0 {
-		to--
+		v1, v2 := p.textBuf.ViewsFromTo(v.StartIndex%uint64(p.textBuf.Cap), v.EndIndex%uint64(p.textBuf.Cap))
+		if len(v1) > 0 && v1[0] == '\n' {
+			v1 = v1[1:]
+		}
+
+		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *p.lastCmdCharPos).Data
+		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2, *p.lastCmdCharPos).Data
 	}
-	v1, v2 := p.textBuf.ViewsFromTo(uint64(from), uint64(to))
-
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0)).Data
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2, *p.lastCmdCharPos).Data
-
-	sepLinePos.Data = p.lastCmdCharPos.Data
 
 	// Draw cmd buf
 	p.lastCmdCharPos.SetX(0)
-	p.lastCmdCharPos.AddY(-p.GlyphRend.Atlas.LineHeight)
+	p.lastCmdCharPos.SetY(sepLinePos.Y() - p.GlyphRend.Atlas.LineHeight)
 	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
 }
 
@@ -396,7 +396,7 @@ func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 			// @PERF We could probably use bytes.IndexByte here
 			if r == '\n' {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(rs[startIndex:i], &pos, &currColor).Data
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currColor).Data
 				pos.SetX(startPos.X())
 				pos.AddY(-p.GlyphRend.Atlas.LineHeight)
 				startIndex = i + 1
@@ -405,7 +405,7 @@ func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 		}
 
 		if startIndex < len(rs) {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(rs[startIndex:], &pos, &currColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currColor).Data
 		}
 	}
 
@@ -679,21 +679,15 @@ func (p *program) ParseLines(bs []byte) {
 		bs = bs[index+1:]
 
 		checkedBytes += uint64(index + 1)
-		if p.CurrLineValid {
-			p.CurrLine.EndIndex = p.textBuf.WrittenElements + checkedBytes - 1
-			p.WriteLine(&p.CurrLine)
-			p.CurrLine.StartIndex = p.textBuf.WrittenElements + checkedBytes - 1
-		} else {
-			p.CurrLine.StartIndex = p.textBuf.WrittenElements + checkedBytes - 1
-			p.CurrLineValid = true
-		}
+		p.CurrLine.EndIndex = p.textBuf.WrittenElements + checkedBytes - 1
+		p.WriteLine(&p.CurrLine)
+		p.CurrLine.StartIndex = p.textBuf.WrittenElements + checkedBytes - 1
 	}
 }
 
 func (p *program) WriteLine(l *Line) {
-	p.Lines[p.LineCount] = *l
-	p.LineCount = (p.LineCount + 1) % uint64(len(p.Lines))
 	assert.T(l.StartIndex <= l.EndIndex, "Invalid line: %+v\n", l)
+	p.Lines.Write(*l)
 }
 
 func (p *program) IsLineValid(l *Line) bool {
@@ -913,14 +907,14 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 	return lastIndex
 }
 
-// findNLinesIndexIterator starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
+// FindNLinesIndexIterator starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
 // then returns the index of the nth line and the size of char in bytes that preceeds the line.
 //
 // A line is counted when either a '\n' is seen or by seeing enough chars that a wrap is required.
 //
 // Note: When moving backwards from the start of the line, the first char will be a new line (e.g. \n), so the first counted line is not a full line
 // but only a single rune. So in most cases to get '-n' lines backwards you should request '-n-1' lines.
-func findNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine int64) (newIndex, newSize int64) {
+func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine int64) (newIndex, newSize int64) {
 
 	// If nothing changes (e.g. already at end of iterator) then we will stay at the same place
 
