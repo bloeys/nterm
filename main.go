@@ -52,6 +52,11 @@ type Line struct {
 	StartIndex, EndIndex uint64
 }
 
+func (l *Line) Size() uint64 {
+	size := l.EndIndex - l.StartIndex
+	return size
+}
+
 var _ engine.Game = &program{}
 
 type program struct {
@@ -66,7 +71,11 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	Lines        []Line
+	CurrLine      Line
+	CurrLineValid bool
+	Lines         []Line
+	LineCount     uint64
+
 	textBuf      *ring.Buffer[byte]
 	textBufMutex sync.Mutex
 
@@ -133,7 +142,10 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		Lines:   make([]Line, defaultTextBufSize),
+		Lines:         make([]Line, defaultTextBufSize),
+		LineCount:     0,
+		CurrLineValid: true,
+
 		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
 		cursorCharIndex: 0,
@@ -255,6 +267,7 @@ func (p *program) Update() {
 func (p *program) WriteToTextBuf(text []byte) {
 	// This is locked because running cmds are potentially writing to it same time we are
 	p.textBufMutex.Lock()
+	p.ParseLines(text)
 	p.textBuf.Write(text...)
 	p.scrollPos = clamp(p.textBuf.Len-p.CellCount, 0, p.textBuf.Len-1)
 	p.textBufMutex.Unlock()
@@ -621,7 +634,6 @@ func (p *program) HandleReturn() {
 
 			// @Todo We need to parse ansi codes as data is coming in to update the drawing settings (e.g. color)
 			b := buf[:readBytes]
-			p.ParseLines(b)
 			p.WriteToTextBuf(b)
 			// println("Read:", string(buf[:readBytes]))
 		}
@@ -629,8 +641,6 @@ func (p *program) HandleReturn() {
 
 	//Stderr
 	go func() {
-
-		defer p.ClearActiveCmd()
 
 		buf := make([]byte, 1024)
 		for p.activeCmd != nil {
@@ -655,8 +665,34 @@ func (p *program) HandleReturn() {
 	}()
 }
 
-func (p *program) ParseLines(b []byte) {
+func (p *program) ParseLines(bs []byte) {
 
+	for i := uint64(0); i < uint64(len(bs)); i++ {
+
+		b := bs[i]
+		if b == '\n' {
+
+			if p.CurrLineValid {
+				p.CurrLine.EndIndex = p.textBuf.WrittenElements + i
+				p.WriteLine(&p.CurrLine)
+				p.CurrLine.StartIndex = p.textBuf.WrittenElements + i
+			} else {
+				p.CurrLine.StartIndex = p.textBuf.WrittenElements + i
+				p.CurrLineValid = true
+			}
+		}
+	}
+}
+
+func (p *program) WriteLine(l *Line) {
+	p.Lines[p.LineCount] = *l
+	p.LineCount = (p.LineCount + 1) % uint64(len(p.Lines))
+	assert.T(l.StartIndex <= l.EndIndex, "Invalid line: %+v\n", l)
+}
+
+func (p *program) IsLineValid(l *Line) bool {
+	isValid := p.textBuf.WrittenElements-l.StartIndex <= uint64(p.textBuf.Cap)
+	return isValid
 }
 
 func (p *program) ClearActiveCmd() {
@@ -777,7 +813,7 @@ func (p *program) DrawGrid() {
 }
 
 func (p *program) FrameEnd() {
-	assert.T(p.cursorCharIndex <= p.cmdBufLen, fmt.Sprintf("Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", p.cursorCharIndex, p.cmdBufLen))
+	assert.T(p.cursorCharIndex <= p.cmdBufLen, "Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", p.cursorCharIndex, p.cmdBufLen)
 
 	if p.Settings.LimitFps {
 
