@@ -1,6 +1,7 @@
 package ring
 
 import (
+	"github.com/bloeys/nterm/assert"
 	"golang.org/x/exp/constraints"
 )
 
@@ -73,8 +74,44 @@ func (b *Buffer[T]) Get(index uint64) (val T) {
 	return b.Data[(b.Start+int64(index))%b.Cap]
 }
 
-func (b *Buffer[T]) AbsIndex(relIndex uint64) uint64 {
+// AbsIndexFromRel takes an index relative to Buffer.Start and returns an absolute index into Buffer.Data
+func (b *Buffer[T]) AbsIndexFromRel(relIndex uint64) uint64 {
 	return uint64((b.Start + int64(relIndex)) % b.Cap)
+}
+
+// RelIndexFromAbs takes an index into Buffer.Data and returns an index relative to Buffer.Start
+func (b *Buffer[T]) RelIndexFromAbs(absIndex uint64) uint64 {
+	assert.T(absIndex < uint64(b.Cap), "absIndex must be between 0 and Buffer.Cap-1")
+	return uint64((int64(absIndex) - b.Start + b.Cap) % b.Cap)
+}
+
+// AbsIndexFromWriteCount takes the total number of elements written and returns the index of the
+// last written element after 'writeCount' writes.
+//
+// For example, if writeCount=1 then the index of last written element (the returned value) is zero.
+// For a buffer of cap=4, after 5 writes the last updated index is absIndex=0
+//
+// writeCount=0 is undefined because no elements have been written to yet. In this case zero is returned.
+func (b *Buffer[T]) AbsIndexFromWriteCount(writeCount uint64) uint64 {
+	if writeCount == 0 {
+		return 0
+	}
+
+	return (writeCount - 1) % uint64(b.Cap)
+}
+
+// RelIndexFromWriteCount takes the total number of elements written and returns the index of the
+// last written element after 'writeCount' writes relative to the current Buffer.Start value.
+//
+// For example, if writeCount=1 then the index of last written element (the returned value) is zero.
+// For a buffer of cap=4, after 5 writes the last updated index is absIndex=0
+//
+// writeCount=0 is undefined because no elements have been written to yet. In this case zero is returned.
+func (b *Buffer[T]) RelIndexFromWriteCount(writeCount uint64) uint64 {
+	if writeCount == 0 {
+		return 0
+	}
+	return b.RelIndexFromAbs(b.AbsIndexFromWriteCount(writeCount))
 }
 
 // Views returns two slices that have 'Len' elements in total between them.
@@ -91,11 +128,19 @@ func (b *Buffer[T]) Views() (v1, v2 []T) {
 	}
 
 	v1 = b.Data[b.Start:]
-	v2 = b.Data[:b.Start+b.Len-b.Cap]
+	v2 = b.Data[:(b.Start+b.Len)%b.Cap]
 	return
 }
 
-func (b *Buffer[T]) ViewsFromTo(fromIndex, toIndex uint64) (v1, v2 []T) {
+func (b *Buffer[T]) ViewsFromToWriteCount(fromIndex, toIndex uint64) (v1, v2 []T) {
+	fromIndex = b.RelIndexFromWriteCount(fromIndex)
+	toIndex = b.RelIndexFromWriteCount(toIndex)
+	return b.ViewsFromToRelIndex(fromIndex, toIndex)
+}
+
+// ViewsFromToRelIndex takes indices relative to Buffer.Start and returns views adjusted to contain
+// elements between these two indices (inclusive)
+func (b *Buffer[T]) ViewsFromToRelIndex(fromIndex, toIndex uint64) (v1, v2 []T) {
 
 	toIndex++ // We convert the index into a length (e.g. from=0, to=0 is from=0, len=1)
 	if toIndex <= fromIndex || fromIndex >= uint64(b.Len) {

@@ -49,11 +49,12 @@ type Cmd struct {
 	Stderr io.ReadCloser
 }
 
-type Line struct {
+// Para represents a paragraph, a line of text between two new lines
+type Para struct {
 	StartIndex, EndIndex uint64
 }
 
-func (l *Line) Size() uint64 {
+func (l *Para) Size() uint64 {
 	size := l.EndIndex - l.StartIndex
 	return size
 }
@@ -72,10 +73,8 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	CurrLine Line
-	// CurrLineValid bool
-
-	Lines *ring.Buffer[Line]
+	CurrPara Para
+	Paras    *ring.Buffer[Para]
 
 	textBuf      *ring.Buffer[byte]
 	textBufMutex sync.Mutex
@@ -143,7 +142,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		Lines: ring.NewBuffer[Line](defaultTextBufSize),
+		Paras: ring.NewBuffer[Para](defaultTextBufSize),
 
 		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
@@ -263,34 +262,6 @@ func (p *program) Update() {
 	p.MainUpdate()
 }
 
-func (p *program) WriteToTextBuf(text []byte) {
-	// This is locked because running cmds are potentially writing to it same time we are
-	p.textBufMutex.Lock()
-	p.ParseLines(text)
-	p.textBuf.Write(text...)
-	p.textBufMutex.Unlock()
-
-	// @Todo we need better handling here
-	p.scrollPos = clamp(p.Lines.Len-p.CellCountY+3, 0, p.Lines.Len)
-}
-
-func (p *program) WriteToCmdBuf(text []rune) {
-
-	delta := int64(len(text))
-	newHeadPos := p.cmdBufLen + delta
-	if newHeadPos <= defaultCmdBufSize {
-
-		copy(p.cmdBuf[p.cursorCharIndex+delta:], p.cmdBuf[p.cursorCharIndex:])
-		copy(p.cmdBuf[p.cursorCharIndex:], text)
-
-		p.cursorCharIndex += delta
-		p.cmdBufLen = newHeadPos
-		return
-	}
-
-	assert.T(false, "Circular buffer not implemented for cmd buf")
-}
-
 var sepLinePos = gglm.NewVec3(0, 0, 0)
 
 func (p *program) MainUpdate() {
@@ -322,7 +293,7 @@ func (p *program) MainUpdate() {
 			p.scrollPos++
 		}
 
-		p.scrollPos = clamp(p.scrollPos, 0, p.Lines.Len)
+		p.scrollPos = clamp(p.scrollPos, 0, p.Paras.Len)
 	}
 
 	// Delete inputs
@@ -339,12 +310,17 @@ func (p *program) MainUpdate() {
 	sepLinePos.SetY(2 * p.GlyphRend.Atlas.LineHeight)
 
 	// Draw textBuf
-	linesIt := p.Lines.Iterator()
-	linesIt.GotoIndex(p.scrollPos)
+	parasIt := p.Paras.Iterator()
+	parasIt.GotoIndex(p.scrollPos)
 	p.lastCmdCharPos.Data = gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0).Data
-	for v, done := linesIt.Next(); !done && p.lastCmdCharPos.Y() >= sepLinePos.Y(); v, done = linesIt.Next() {
+	for v, done := parasIt.Next(); !done && p.lastCmdCharPos.Y() >= sepLinePos.Y(); v, done = parasIt.Next() {
 
-		v1, v2 := p.textBuf.ViewsFromTo(v.StartIndex%uint64(p.textBuf.Cap), v.EndIndex%uint64(p.textBuf.Cap))
+		if !p.IsParaValid(&v) {
+			p.scrollPos++
+			continue
+		}
+
+		v1, v2 := p.textBuf.ViewsFromToWriteCount(v.StartIndex, v.EndIndex)
 		if len(v1) > 0 && v1[0] == '\n' {
 			v1 = v1[1:]
 		}
@@ -359,32 +335,8 @@ func (p *program) MainUpdate() {
 	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
 }
 
-func bytesToRunes(b []byte) []rune {
-
-	runeCount := utf8.RuneCount(b)
-	if runeCount == 0 {
-		return []rune{}
-	}
-
-	// @PERF We should use a pre-allocated buffer here
-	out := make([]rune, 0, runeCount)
-	for {
-
-		r, size := utf8.DecodeRune(b)
-		if r == utf8.RuneError {
-			break
-		}
-
-		out = append(out, r)
-		b = b[size:]
-	}
-
-	return out
-}
-
 func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
-	startPos := pos.Clone()
 	currColor := p.Settings.DefaultColor
 
 	draw := func(rs []rune) {
@@ -397,7 +349,7 @@ func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 			// @PERF We could probably use bytes.IndexByte here
 			if r == '\n' {
 				pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currColor).Data
-				pos.SetX(startPos.X())
+				pos.SetX(0)
 				pos.AddY(-p.GlyphRend.Atlas.LineHeight)
 				startIndex = i + 1
 				continue
@@ -666,7 +618,7 @@ func (p *program) HandleReturn() {
 	}()
 }
 
-func (p *program) ParseLines(bs []byte) {
+func (p *program) ParseParas(bs []byte) {
 
 	checkedBytes := uint64(0)
 	for len(bs) > 0 {
@@ -679,19 +631,19 @@ func (p *program) ParseLines(bs []byte) {
 		bs = bs[index+1:]
 
 		checkedBytes += uint64(index + 1)
-		p.CurrLine.EndIndex = p.textBuf.WrittenElements + checkedBytes - 1
-		p.WriteLine(&p.CurrLine)
-		p.CurrLine.StartIndex = p.textBuf.WrittenElements + checkedBytes - 1
+		p.CurrPara.EndIndex = p.textBuf.WrittenElements + checkedBytes
+		p.WritePara(&p.CurrPara)
+		p.CurrPara.StartIndex = p.textBuf.WrittenElements + checkedBytes
 	}
 }
 
-func (p *program) WriteLine(l *Line) {
-	assert.T(l.StartIndex <= l.EndIndex, "Invalid line: %+v\n", l)
-	p.Lines.Write(*l)
+func (p *program) WritePara(para *Para) {
+	assert.T(para.StartIndex <= para.EndIndex, "Invalid line: %+v\n", para)
+	p.Paras.Write(*para)
 }
 
-func (p *program) IsLineValid(l *Line) bool {
-	isValid := p.textBuf.WrittenElements-l.StartIndex <= uint64(p.textBuf.Cap)
+func (p *program) IsParaValid(l *Para) bool {
+	isValid := p.textBuf.WrittenElements-l.StartIndex < uint64(p.textBuf.Cap)
 	return isValid
 }
 
@@ -845,6 +797,36 @@ func (p *program) HandleWindowResize() {
 	p.CellCount = p.CellCountX * p.CellCountY
 }
 
+func (p *program) WriteToTextBuf(text []byte) {
+	// This is locked because running cmds are potentially writing to it same time we are
+	p.textBufMutex.Lock()
+
+	p.ParseParas(text)
+	p.textBuf.Write(text...)
+
+	p.textBufMutex.Unlock()
+
+	// @Todo we need better handling here
+	p.scrollPos = clamp(p.Paras.Len-p.CellCountY+3, 0, p.Paras.Len)
+}
+
+func (p *program) WriteToCmdBuf(text []rune) {
+
+	delta := int64(len(text))
+	newHeadPos := p.cmdBufLen + delta
+	if newHeadPos <= defaultCmdBufSize {
+
+		copy(p.cmdBuf[p.cursorCharIndex+delta:], p.cmdBuf[p.cursorCharIndex:])
+		copy(p.cmdBuf[p.cursorCharIndex:], text)
+
+		p.cursorCharIndex += delta
+		p.cmdBufLen = newHeadPos
+		return
+	}
+
+	assert.T(false, "Circular buffer not implemented for cmd buf")
+}
+
 func FloorF32(x float32) float32 {
 	return float32(math.Floor(float64(x)))
 }
@@ -868,6 +850,29 @@ func clamp[T constraints.Ordered](x, min, max T) T {
 	}
 
 	return x
+}
+
+func bytesToRunes(b []byte) []rune {
+
+	runeCount := utf8.RuneCount(b)
+	if runeCount == 0 {
+		return []rune{}
+	}
+
+	// @PERF We should use a pre-allocated buffer here
+	out := make([]rune, 0, runeCount)
+	for {
+
+		r, size := utf8.DecodeRune(b)
+		if r == utf8.RuneError {
+			break
+		}
+
+		out = append(out, r)
+		b = b[size:]
+	}
+
+	return out
 }
 
 func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIndex int64) {

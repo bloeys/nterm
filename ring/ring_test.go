@@ -71,77 +71,77 @@ func TestRing(t *testing.T) {
 	// ViewsFromTo
 	b2 = ring.NewBuffer[int](4)
 
-	v11, v22 := b2.ViewsFromTo(0, 0)
+	v11, v22 := b2.ViewsFromToRelIndex(0, 0)
 	Check(t, 0, len(v11))
 	Check(t, 0, len(v22))
 
 	b2.Write(1, 2, 3, 4)
 
-	v11, v22 = b2.ViewsFromTo(5, 0)
+	v11, v22 = b2.ViewsFromToRelIndex(5, 0)
 	Check(t, 0, len(v11))
 	Check(t, 0, len(v22))
 
-	v11, v22 = b2.ViewsFromTo(0, 0)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 0)
 	Check(t, 1, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{1}, v11)
 
-	v11, v22 = b2.ViewsFromTo(0, 1)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 1)
 	Check(t, 2, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{1, 2}, v11)
 
-	v11, v22 = b2.ViewsFromTo(0, 3)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 3)
 	Check(t, 4, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{1, 2, 3, 4}, v11)
 
-	v11, v22 = b2.ViewsFromTo(0, 4)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 4)
 	Check(t, 4, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{1, 2, 3, 4}, v11)
 
-	v11, v22 = b2.ViewsFromTo(0, 40)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 40)
 	Check(t, 4, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{1, 2, 3, 4}, v11)
 
-	v11, v22 = b2.ViewsFromTo(3, 40)
+	v11, v22 = b2.ViewsFromToRelIndex(3, 40)
 	Check(t, 1, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{4}, v11)
 
 	b2.Write(5, 6)
 
-	v11, v22 = b2.ViewsFromTo(3, 40)
+	v11, v22 = b2.ViewsFromToRelIndex(3, 40)
 	Check(t, 0, len(v11))
 	Check(t, 1, len(v22))
 	CheckArr(t, []int{6}, v22)
 
-	v11, v22 = b2.ViewsFromTo(1, 2)
+	v11, v22 = b2.ViewsFromToRelIndex(1, 2)
 	Check(t, 1, len(v11))
 	Check(t, 1, len(v22))
 	CheckArr(t, []int{4}, v11)
 	CheckArr(t, []int{5}, v22)
 
-	v11, v22 = b2.ViewsFromTo(0, 1)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 1)
 	Check(t, 2, len(v11))
 	Check(t, 0, len(v22))
 	CheckArr(t, []int{3, 4}, v11)
 
-	v11, v22 = b2.ViewsFromTo(0, 2)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 2)
 	Check(t, 2, len(v11))
 	Check(t, 1, len(v22))
 	CheckArr(t, []int{3, 4}, v11)
 	CheckArr(t, []int{5}, v22)
 
-	v11, v22 = b2.ViewsFromTo(0, 3)
+	v11, v22 = b2.ViewsFromToRelIndex(0, 3)
 	Check(t, 2, len(v11))
 	Check(t, 2, len(v22))
 	CheckArr(t, []int{3, 4}, v11)
 	CheckArr(t, []int{5, 6}, v22)
 
-	v11, v22 = b2.ViewsFromTo(2, 3)
+	v11, v22 = b2.ViewsFromToRelIndex(2, 3)
 	Check(t, 0, len(v11))
 	Check(t, 2, len(v22))
 	CheckArr(t, []int{5, 6}, v22)
