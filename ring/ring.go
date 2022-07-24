@@ -169,14 +169,11 @@ func (it *Iterator[T]) Len() int64 {
 	return int64(len(it.V1) + len(it.V2))
 }
 
-// Next returns the value at Iterator.Curr and done=false
-//
-// If there are no more values to return the default value is returned for v and done=true
-func (it *Iterator[T]) Next() (v T, done bool) {
+func (it *Iterator[T]) NextPtr() (v *T, done bool) {
 
 	if it.InV1 {
 
-		v = it.V1[it.Curr]
+		v = &it.V1[it.Curr]
 
 		it.Curr++
 		if it.Curr >= int64(len(it.V1)) {
@@ -191,25 +188,29 @@ func (it *Iterator[T]) Next() (v T, done bool) {
 		return v, true
 	}
 
-	v = it.V2[it.Curr]
+	v = &it.V2[it.Curr]
 	it.Curr++
 	return v, false
 }
 
-func (it *Iterator[T]) HasNext() bool {
-	hasNext := it.InV1 || it.Curr < int64(len(it.V2))
-	return hasNext
-}
+// Next returns the value at Iterator.Curr and done=false
+//
+// If there are no more values to return the default value is returned for v and done=true
+func (it *Iterator[T]) Next() (v T, done bool) {
 
-func (it *Iterator[T]) HasPrev() bool {
-	hasPrev := (!it.InV1 && it.Curr-1 >= 0) || (it.InV1 && it.Curr > 0)
-	return hasPrev
+	var vPtr *T
+	vPtr, done = it.NextPtr()
+	if vPtr == nil {
+		return v, done
+	}
+
+	return *vPtr, done
 }
 
 // Next returns the value at Iterator.Curr-1 and done=false
 //
 // If there are no more values to return the default value is returned for v and done=true
-func (it *Iterator[T]) Prev() (v T, done bool) {
+func (it *Iterator[T]) PrevPtr() (v *T, done bool) {
 
 	if it.InV1 {
 
@@ -218,7 +219,7 @@ func (it *Iterator[T]) Prev() (v T, done bool) {
 		}
 
 		it.Curr--
-		v = it.V1[it.Curr]
+		v = &it.V1[it.Curr]
 		return v, false
 	}
 
@@ -226,12 +227,23 @@ func (it *Iterator[T]) Prev() (v T, done bool) {
 	if it.Curr < 0 {
 		it.InV1 = true
 		it.Curr = int64(len(it.V1))
-		return it.Prev()
+		return it.PrevPtr()
 	}
 
-	v = it.V2[it.Curr]
+	v = &it.V2[it.Curr]
 
 	return v, false
+}
+
+func (it *Iterator[T]) Prev() (v T, done bool) {
+
+	var vPtr *T
+	vPtr, done = it.PrevPtr()
+	if vPtr == nil {
+		return v, done
+	}
+
+	return *vPtr, done
 }
 
 // NextN calls Next() up to n times and places the result in the passed buffer.
@@ -289,6 +301,16 @@ func (it *Iterator[T]) PrevN(buf []T, n int) (read int, done bool) {
 	}
 
 	return read, done
+}
+
+func (it *Iterator[T]) HasNext() bool {
+	hasNext := it.InV1 || it.Curr < int64(len(it.V2))
+	return hasNext
+}
+
+func (it *Iterator[T]) HasPrev() bool {
+	hasPrev := (!it.InV1 && it.Curr-1 >= 0) || (it.InV1 && it.Curr > 0)
+	return hasPrev
 }
 
 // GotoStart adjusts the iterator such that the following Next() call returns the value at index=0
