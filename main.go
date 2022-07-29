@@ -49,13 +49,14 @@ type Cmd struct {
 	Stderr io.ReadCloser
 }
 
-// Para represents a paragraph, a line of text between two new lines
+// Para represents a paragraph, a series of characters between two new-lines.
+// The indices are in terms of total written elements to the ring buffer
 type Para struct {
-	StartIndex, EndIndex uint64
+	StartIndex_WriteCount, EndIndex_WriteCount uint64
 }
 
 func (l *Para) Size() uint64 {
-	size := l.EndIndex - l.StartIndex
+	size := l.EndIndex_WriteCount - l.StartIndex_WriteCount
 	return size
 }
 
@@ -104,6 +105,7 @@ const (
 	hinting   = font.HintingNone
 
 	defaultCmdBufSize  = 4 * 1024
+	defaultParaBufSize = 10 * 1024
 	defaultTextBufSize = 4 * 1024 * 1024
 
 	defaultScrollSpd = 1
@@ -142,7 +144,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		Paras: ring.NewBuffer[Para](defaultTextBufSize),
+		Paras: ring.NewBuffer[Para](defaultParaBufSize),
 
 		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
@@ -285,15 +287,20 @@ func (p *program) MainUpdate() {
 		p.cursorCharIndex = p.cmdBufLen
 	}
 
+	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_END) {
+		p.scrollPos = p.textBuf.Len - 1
+	}
+
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
+		charsPerLine, _ := p.GridSize()
 		if mouseWheelYNorm < 0 {
-			p.scrollPos--
+			p.scrollPos = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPos, -p.scrollSpd, charsPerLine-1)
 		} else {
-			p.scrollPos++
+			p.scrollPos = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPos, p.scrollSpd, charsPerLine-1)
 		}
 
-		p.scrollPos = clamp(p.scrollPos, 0, p.Paras.Len)
+		p.scrollPos = clamp(p.scrollPos, 0, p.textBuf.Len-1)
 	}
 
 	// Delete inputs
@@ -310,24 +317,12 @@ func (p *program) MainUpdate() {
 	sepLinePos.SetY(2 * p.GlyphRend.Atlas.LineHeight)
 
 	// Draw textBuf
-	parasIt := p.Paras.Iterator()
-	parasIt.GotoIndex(p.scrollPos)
+	gw, gh := p.GridSize()
+	v1, v2 := p.textBuf.ViewsFromToRelIndex(uint64(p.scrollPos), uint64(p.scrollPos)+uint64(gw*gh))
+
 	p.lastCmdCharPos.Data = gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0).Data
-	for v, done := parasIt.Next(); !done && p.lastCmdCharPos.Y() >= sepLinePos.Y(); v, done = parasIt.Next() {
-
-		if !p.IsParaValid(&v) {
-			p.scrollPos++
-			continue
-		}
-
-		v1, v2 := p.textBuf.ViewsFromToWriteCount(v.StartIndex, v.EndIndex)
-		if len(v1) > 0 && v1[0] == '\n' {
-			v1 = v1[1:]
-		}
-
-		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *p.lastCmdCharPos).Data
-		p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2, *p.lastCmdCharPos).Data
-	}
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *p.lastCmdCharPos).Data
+	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2, *p.lastCmdCharPos).Data
 
 	// Draw cmd buf
 	p.lastCmdCharPos.SetX(0)
@@ -496,7 +491,6 @@ func (p *program) HandleReturn() {
 	p.cmdBufLen = 0
 	p.cursorCharIndex = 0
 
-	// @PERF
 	cmdStr := string(cmdRunes)
 	cmdBytes := []byte(cmdStr)
 	p.WriteToTextBuf(cmdBytes)
@@ -631,19 +625,19 @@ func (p *program) ParseParas(bs []byte) {
 		bs = bs[index+1:]
 
 		checkedBytes += uint64(index + 1)
-		p.CurrPara.EndIndex = p.textBuf.WrittenElements + checkedBytes
+		p.CurrPara.EndIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
 		p.WritePara(&p.CurrPara)
-		p.CurrPara.StartIndex = p.textBuf.WrittenElements + checkedBytes
+		p.CurrPara.StartIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
 	}
 }
 
 func (p *program) WritePara(para *Para) {
-	assert.T(para.StartIndex <= para.EndIndex, "Invalid line: %+v\n", para)
+	assert.T(para.StartIndex_WriteCount <= para.EndIndex_WriteCount, "Invalid line: %+v\n", para)
 	p.Paras.Write(*para)
 }
 
-func (p *program) IsParaValid(l *Para) bool {
-	isValid := p.textBuf.WrittenElements-l.StartIndex < uint64(p.textBuf.Cap)
+func IsParaValid(textBuf *ring.Buffer[byte], l *Para) bool {
+	isValid := textBuf.WrittenElements-l.StartIndex_WriteCount < uint64(textBuf.Cap)
 	return isValid
 }
 
@@ -919,9 +913,7 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 //
 // Note: When moving backwards from the start of the line, the first char will be a new line (e.g. \n), so the first counted line is not a full line
 // but only a single rune. So in most cases to get '-n' lines backwards you should request '-n-1' lines.
-func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine int64) (newIndex, newSize int64) {
-
-	// If nothing changes (e.g. already at end of iterator) then we will stay at the same place
+func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para], startIndex, n, charsPerLine int64) (newIndex int64) {
 
 	done := false
 	read := 0
@@ -944,9 +936,6 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 			read, done = it.NextN(buf[bytesToKeep:], 4)
 
 			r, size := utf8.DecodeRune(buf[:bytesToKeep+read])
-			if r == utf8.RuneError {
-				break
-			}
 			bytesToKeep += read - size
 			copy(buf, buf[size:size+bytesToKeep])
 
@@ -957,7 +946,6 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 			if charsSeenThisLine == charsPerLine || r == '\n' {
 
 				charsSeenThisLine = 0
-				newSize = int64(size)
 				newIndex = startIndex + bytesSeen
 
 				n--
@@ -969,6 +957,24 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 
 	} else {
 
+		extraIt := it.Buf.Iterator()
+		if it.Buf.Get(uint64(startIndex)) == '\n' && it.Buf.Get(uint64(startIndex-1)) == '\n' {
+
+			charsIntoLine := getWrappedLineLen(extraIt, paraIt, startIndex-1, charsPerLine)
+			if charsIntoLine > 0 {
+				n++
+				it.Prev()
+				it.Prev()
+				bytesSeen += 2
+				charsSeenThisLine = charsPerLine - int64(charsIntoLine)
+			}
+		} else {
+			charsIntoLine := getWrappedLineLen(extraIt, paraIt, startIndex, charsPerLine)
+			if charsIntoLine > 0 {
+				charsSeenThisLine = charsPerLine - int64(charsIntoLine) - 1
+			}
+		}
+
 		// @Todo this has wrong behavior when dealing with wrapped lines because we don't know what X position to be in
 		// after going up a line. Are we in the middle of the line? The only way to know is to draw from the start of this paragraph
 		// till the start index, which will allows us to get accurate information on wrapping.
@@ -979,9 +985,6 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 			read, done = it.PrevN(buf[bytesToKeep:], 4)
 
 			r, size := utf8.DecodeRune(buf[:bytesToKeep+read])
-			if r == utf8.RuneError {
-				break
-			}
 			bytesToKeep += read - size
 			copy(buf, buf[size:size+bytesToKeep])
 
@@ -991,13 +994,27 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 			// If this is true we covered one line
 			if charsSeenThisLine == charsPerLine || r == '\n' {
 
-				charsSeenThisLine = 0
-				newSize = int64(size)
-				newIndex = startIndex - bytesSeen + newSize
+				newIndex = startIndex - bytesSeen + int64(size)
 
 				n++
 				if n >= 0 {
 					break
+				}
+
+				charsSeenThisLine = 0
+				if r == '\n' {
+
+					// var charsIntoLine int64
+					// if it.Buf.Get(uint64(newIndex)) == '\n' && it.Buf.Get(uint64(newIndex-1)) == '\n' {
+					// 	charsIntoLine = getWrappedLineLen(extraIt, paraIt, newIndex-1, charsPerLine)
+					// }
+
+					// if charsIntoLine > 0 {
+					// 	charsSeenThisLine = charsPerLine - int64(charsIntoLine) - 1
+					// } else {
+					// 	charsSeenThisLine = 0
+					// }
+
 				}
 			}
 		}
@@ -1005,9 +1022,112 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], startIndex, n, charsPerLine
 		// If we reached beginning of buffer before finding a new line then newIndex is zero
 		if startIndex-bytesSeen == 0 {
 			newIndex = 0
-			newSize = 0
+		}
+
+		fmt.Println("Stopped at:", it.Buf.Get(uint64(newIndex)))
+	}
+
+	return newIndex
+}
+
+func getWrappedLineLen(it ring.Iterator[byte], paraIt ring.Iterator[Para], startIndexRel, charsPerLine int64) int64 {
+
+	done := false
+	read := 0
+	bytesToKeep := 0
+	buf := make([]byte, 4)
+	bytesSeen := int64(0)
+
+	paraIt.GotoStart()
+	it.GotoIndex(startIndexRel)
+
+	// @PERF We need a faster way of doing this
+	// Find para that contains the start index
+	var para *Para
+	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+
+		if !IsParaValid(it.Buf, p) {
+			continue
+		}
+
+		x := it.Buf.RelIndexFromWriteCount(p.EndIndex_WriteCount)
+		if startIndexRel > int64(x) {
+			continue
+		}
+
+		para = p
+		break
+	}
+
+	if para == nil {
+
+		paraIt.GotoEnd()
+		para, _ = paraIt.PrevPtr()
+
+		// If there are no paragraphs we just return the startIndex
+		if para == nil {
+			return 0
 		}
 	}
 
-	return newIndex, newSize
+	// Find how far into the line the selected char is
+	charsIntoLine := int64(0)
+	if startIndexRel != int64(it.Buf.RelIndexFromWriteCount(para.StartIndex_WriteCount+1)) {
+
+		hasWrap := false
+		// Start at paragraph beginning till startIndex character
+		it.GotoIndex(int64(it.Buf.RelIndexFromWriteCount(para.StartIndex_WriteCount + 1)))
+		for int64(it.CurrToRelIndex()) < startIndexRel && !done {
+
+			read, done = it.NextN(buf[bytesToKeep:], 4)
+
+			r, size := utf8.DecodeRune(buf[:bytesToKeep+read])
+			bytesToKeep += read - size
+			copy(buf, buf[size:size+bytesToKeep])
+
+			charsIntoLine++
+			bytesSeen += int64(size)
+
+			if r == '\n' {
+				panic("bruh")
+			}
+
+			// If this is true we covered one line
+			if charsIntoLine == charsPerLine {
+				hasWrap = true
+				charsIntoLine = 0
+			}
+		}
+
+		// Previous loop potentially jumps 4 bytes a tick which means we can break out of it
+		// by moving 4 bytes and reaching startIndex, but then charsIntoLine doesn't process the remaining
+		// bytes to see how many bytes they make, so these left overs we cover here
+		it.GotoIndex(int64(it.Buf.RelIndexFromWriteCount(para.StartIndex_WriteCount + 1)))
+		paraStartIndexRel := int64(it.CurrToRelIndex())
+		for bytesToKeep > 0 && paraStartIndexRel+bytesSeen < startIndexRel {
+
+			r, size := utf8.DecodeRune(buf[:bytesToKeep])
+			bytesToKeep -= size
+			copy(buf, buf[size:size+bytesToKeep])
+
+			charsIntoLine++
+			bytesSeen += int64(size)
+
+			if r == '\n' {
+				panic("bruh")
+			}
+
+			// If this is true we covered one line
+			if charsIntoLine == charsPerLine {
+				hasWrap = true
+				charsIntoLine = 0
+			}
+		}
+
+		if !hasWrap {
+			return 0
+		}
+	}
+
+	return charsIntoLine
 }

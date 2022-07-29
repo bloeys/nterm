@@ -200,8 +200,9 @@ func NewBuffer[T any](capacity uint64) *Buffer[T] {
 //
 // Indices used are all relative to 'Buffer.Start'
 type Iterator[T any] struct {
-	V1 []T
-	V2 []T
+	Buf *Buffer[T]
+	V1  []T
+	V2  []T
 
 	// Curr is the index of the element that will be returned on Next(),
 	// which means it is an index into V1 or V2 and so is relative to Buffer.Start value at the time
@@ -212,6 +213,15 @@ type Iterator[T any] struct {
 
 func (it *Iterator[T]) Len() int64 {
 	return int64(len(it.V1) + len(it.V2))
+}
+
+func (it *Iterator[T]) CurrToRelIndex() uint64 {
+
+	if it.InV1 {
+		return uint64(it.Curr)
+	}
+
+	return uint64(it.Curr) + uint64(len(it.V1))
 }
 
 func (it *Iterator[T]) NextPtr() (v *T, done bool) {
@@ -365,7 +375,9 @@ func (it *Iterator[T]) GotoStart() {
 	it.InV1 = len(it.V1) > 0
 }
 
-// GotoIndex goes to the index n relative to Buffer.Start
+// GotoIndex goes to the index n relative to Buffer.Start.
+// If n<=0 this is equivalent to Iterator.GotoStart()
+// if n>=Buffer.Len this is equivalent to Iterator.GotoEnd()
 func (it *Iterator[T]) GotoIndex(n int64) {
 
 	if n <= 0 {
@@ -400,6 +412,7 @@ func (it *Iterator[T]) GotoEnd() {
 func NewIterator[T any](b *Buffer[T]) Iterator[T] {
 	v1, v2 := b.Views()
 	return Iterator[T]{
+		Buf:  b,
 		V1:   v1,
 		V2:   v2,
 		Curr: 0,
