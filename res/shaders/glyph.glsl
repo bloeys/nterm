@@ -16,7 +16,6 @@ out vec4 v2fColor;
 out vec3 v2fFragPos;
 
 uniform mat4 projViewMat;
-uniform vec2 modelSize;
 
 void main()
 {
