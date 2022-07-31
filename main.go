@@ -965,17 +965,22 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 
 		// If on the empty line between paragraphs we want to know where the last char of the previous
 		// para is so we can take into account position differences with wrapping
-		if it.Buf.Get(uint64(startIndex)) == '\n' && it.Buf.Get(uint64(startIndex-1)) == '\n' {
+		startIndexByte := it.Buf.Get(uint64(startIndex))
+		startMinusOneIndexByte := it.Buf.Get(uint64(startIndex - 1))
+		if startIndexByte == '\n' {
 
-			charsIntoLine := getCharGridPosX(it.Buf.Iterator(), paraIt, startIndex-2, charsPerLine)
-			if charsIntoLine > 0 {
-				charsSeenThisLine = charsPerLine - charsIntoLine
+			if startMinusOneIndexByte == '\n' {
+
+				charsIntoLine := getCharGridPosX(it.Buf.Iterator(), paraIt, startIndex-2, charsPerLine)
+				if charsIntoLine > 0 {
+					charsSeenThisLine = charsPerLine - charsIntoLine
+				}
 			}
+		}
 
-			// Skip the extra new line so the decoder starts with normal characters instead of seeing a newline
-			// and immediately quitting
-			it.Prev()
-		} else if it.Buf.Get(uint64(startIndex-1)) == '\n' {
+		// Skip the extra new line so the decoder starts with normal characters instead of seeing a newline
+		// and immediately quitting
+		if startIndexByte == '\n' || startMinusOneIndexByte == '\n' {
 			it.Prev()
 		}
 
