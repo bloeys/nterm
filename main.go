@@ -97,6 +97,8 @@ type program struct {
 	Settings  *Settings
 
 	frameStartTime time.Time
+
+	SepLinePos gglm.Vec3
 }
 
 const (
@@ -264,8 +266,6 @@ func (p *program) Update() {
 	p.MainUpdate()
 }
 
-var sepLinePos = gglm.NewVec3(0, 0, 0)
-
 func (p *program) MainUpdate() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
@@ -314,7 +314,7 @@ func (p *program) MainUpdate() {
 	}
 
 	// Line separator
-	sepLinePos.SetY(2 * p.GlyphRend.Atlas.LineHeight)
+	p.SepLinePos.SetY(2 * p.GlyphRend.Atlas.LineHeight)
 
 	// Draw textBuf
 	gw, gh := p.GridSize()
@@ -326,7 +326,7 @@ func (p *program) MainUpdate() {
 
 	// Draw cmd buf
 	p.lastCmdCharPos.SetX(0)
-	p.lastCmdCharPos.SetY(sepLinePos.Y() - p.GlyphRend.Atlas.LineHeight)
+	p.lastCmdCharPos.SetY(p.SepLinePos.Y() - p.GlyphRend.Atlas.LineHeight)
 	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
 }
 
@@ -709,7 +709,7 @@ func (p *program) Render() {
 		p.DebugRender()
 
 		sizeX := float32(p.GlyphRend.ScreenWidth)
-		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, sepLinePos.Y(), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
+		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, p.SepLinePos.Y(), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
 	}
 
 	p.DrawCursor()
