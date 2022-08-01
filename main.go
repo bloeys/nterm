@@ -279,8 +279,16 @@ func (nt *nterm) MainUpdate() {
 		paraIt := nt.Paras.Iterator()
 		for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
 
-			if !IsParaValid(nt.textBuf, p) {
+			paraStatus := getParaStatus(nt.textBuf, p)
+			if paraStatus == ParaStatus_Invalid {
 				continue
+			}
+
+			// If start index is invalid but end index is still valid then we push the start into a valid position
+			if paraStatus == ParaStatus_PartiallyInvalid {
+				diff := nt.textBuf.WrittenElements - nt.firstValidPara.StartIndex_WriteCount
+				deltaToValid := diff - uint64(nt.textBuf.Cap) + 1 // How much we need to move startIndex to be barely valid
+				nt.firstValidPara.StartIndex_WriteCount = clamp(nt.firstValidPara.StartIndex_WriteCount+deltaToValid, 0, nt.firstValidPara.EndIndex_WriteCount-1)
 			}
 
 			nt.firstValidPara = p
@@ -318,9 +326,14 @@ func (nt *nterm) MainUpdate() {
 func (nt *nterm) ReadInputs() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
-		nt.cursorCharIndex = nt.cmdBufLen // This is so \n is written to the end of the cmdBuf
-		nt.WriteToCmdBuf([]rune{'\n'})
-		nt.HandleReturn()
+
+		if nt.cmdBufLen > 0 {
+			nt.cursorCharIndex = nt.cmdBufLen // This is so \n is written to the end of the cmdBuf
+			nt.WriteToCmdBuf([]rune{'\n'})
+			nt.HandleReturn()
+		} else {
+			nt.WriteToTextBuf([]byte{'\n'})
+		}
 	}
 
 	// Cursor movement and scroll
@@ -337,7 +350,11 @@ func (nt *nterm) ReadInputs() {
 	}
 
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_END) {
-		nt.scrollPosRel = nt.textBuf.Len - 1
+
+		charsPerLine, _ := nt.GridSize()
+		nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Paras.Iterator(), nt.textBuf.Len-1, -nt.scrollSpd, charsPerLine-1)
+		nt.scrollPosRel = clamp(nt.scrollPosRel, int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidPara.StartIndex_WriteCount)), nt.textBuf.Len-1)
+
 	} else if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_HOME) {
 		nt.scrollPosRel = 0
 	}
@@ -649,6 +666,7 @@ func (p *nterm) HandleReturn() {
 
 func (p *nterm) ParseParas(bs []byte) {
 
+	// @TODO We should virtually break lines when they are too long
 	checkedBytes := uint64(0)
 	for len(bs) > 0 {
 
@@ -669,11 +687,6 @@ func (p *nterm) ParseParas(bs []byte) {
 func (p *nterm) WritePara(para *Para) {
 	assert.T(para.StartIndex_WriteCount <= para.EndIndex_WriteCount, "Invalid line: %+v\n", para)
 	p.Paras.Write(*para)
-}
-
-func IsParaValid(textBuf *ring.Buffer[byte], p *Para) bool {
-	isValid := textBuf.WrittenElements-p.StartIndex_WriteCount < uint64(textBuf.Cap)
-	return isValid
 }
 
 func (p *nterm) ClearActiveCmd() {
@@ -1000,7 +1013,7 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 
 			if startMinusOneIndexByte == '\n' {
 
-				charsIntoLine := getCharGridPosX(it.Buf.Iterator(), paraIt, startIndex-2, charsPerLine)
+				charsIntoLine := getCharGridPosX(it.Buf.Iterator(), paraIt, clamp(startIndex-2, 0, it.Buf.Len-1), charsPerLine)
 				if charsIntoLine > 0 {
 					charsSeenThisLine = charsPerLine - charsIntoLine
 				}
@@ -1113,11 +1126,42 @@ func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 		break
 	}
 
-	// println("Ticks to finding para:", ticks)
+	println("Ticks to finding para:", ticks)
 
 	if outPara == nil {
 		panic("Could not find para")
 	}
 
 	return outPara, pIndex
+}
+
+type ParaStatus byte
+
+const (
+	ParaStatus_Unknown ParaStatus = iota
+	ParaStatus_Valid
+	// PartiallyInvalid is when the start index is invalid but the end index is in a valid position
+	ParaStatus_PartiallyInvalid
+	ParaStatus_Invalid
+)
+
+// IsParaValid returns true only if the status is ParaStatus_Valid
+func IsParaValid(textBuf *ring.Buffer[byte], p *Para) bool {
+	isValid := textBuf.WrittenElements-p.StartIndex_WriteCount < uint64(textBuf.Cap)
+	return isValid
+}
+
+func getParaStatus(textBuf *ring.Buffer[byte], p *Para) ParaStatus {
+
+	startValid := textBuf.WrittenElements-p.StartIndex_WriteCount < uint64(textBuf.Cap)
+	if startValid {
+		return ParaStatus_Valid
+	}
+
+	endValid := textBuf.WrittenElements-p.EndIndex_WriteCount < uint64(textBuf.Cap)
+	if endValid {
+		return ParaStatus_PartiallyInvalid
+	}
+
+	return ParaStatus_Invalid
 }
