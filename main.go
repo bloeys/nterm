@@ -217,9 +217,9 @@ func (p *nterm) Init() {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
 
-	if consts.Mode_Debug {
-		glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
-	}
+	// if consts.Mode_Debug {
+	// glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
+	// }
 
 	//Load resources
 	p.gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
