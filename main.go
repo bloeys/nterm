@@ -56,7 +56,7 @@ type Line struct {
 	EndIndex_WriteCount   uint64
 }
 
-func (l *Line) Size() uint64 {
+func (l *Line) Len() uint64 {
 	size := l.EndIndex_WriteCount - l.StartIndex_WriteCount
 	return size
 }
@@ -113,6 +113,7 @@ const (
 	defaultLineBufSize = 10 * 1024 // Max number of lines
 	defaultTextBufSize = 8 * 1024 * 1024
 
+	// How many lines to move per scroll
 	defaultScrollSpd = 1
 )
 
@@ -274,7 +275,7 @@ func (p *nterm) Update() {
 func (nt *nterm) MainUpdate() {
 
 	// Keep a reference to the first valid line
-	if !IsLineValid(nt.textBuf, nt.firstValidLine) || nt.firstValidLine.Size() == 0 {
+	if !IsLineValid(nt.textBuf, nt.firstValidLine) || nt.firstValidLine.Len() == 0 {
 
 		lineIt := nt.Lines.Iterator()
 		for p, done := lineIt.NextPtr(); !done; p, done = lineIt.NextPtr() {
@@ -719,7 +720,9 @@ func (p *nterm) DrawCursor() {
 
 // GridSize returns how many cells horizontally (aka chars per line) and how many cells vertically (aka lines)
 func (p *nterm) GridSize() (w, h int64) {
-	return int64(p.GlyphRend.ScreenWidth) / int64(p.GlyphRend.Atlas.SpaceAdvance), int64(p.GlyphRend.ScreenHeight) / int64(p.GlyphRend.Atlas.LineHeight)
+	w = int64(p.GlyphRend.ScreenWidth) / int64(p.GlyphRend.Atlas.SpaceAdvance)
+	h = int64(p.GlyphRend.ScreenHeight) / int64(p.GlyphRend.Atlas.LineHeight)
+	return w, h
 }
 
 func (p *nterm) ScreenPosToGridPos(screenPos *gglm.Vec3) {
@@ -914,43 +917,6 @@ func bytesToRunes(b []byte) []rune {
 	return out
 }
 
-func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIndex int64) {
-
-	lastIndex = -1
-	if n >= 0 {
-
-		for i := startIndex; i < int64(len(arr)); i++ {
-
-			if arr[i] != x {
-				continue
-			}
-			lastIndex = i
-
-			n--
-			if n <= 0 {
-				return i
-			}
-		}
-
-	} else {
-
-		for i := startIndex; i >= 0; i-- {
-
-			if arr[i] != x {
-				continue
-			}
-			lastIndex = i
-
-			n++
-			if n >= 0 {
-				return i
-			}
-		}
-	}
-
-	return lastIndex
-}
-
 // FindNLinesIndexIterator starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
 // then returns the starting index of the nth line.
 //
@@ -1060,6 +1026,8 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], lineIt ring.Iterator[Line],
 	return newIndex
 }
 
+// getCharGridPosX returns the dispaly grid's X position of the char at textBufStartIndexRel.
+// Wrapping is respected so if the char is at the end of a long line it's position will take that into consideration
 func getCharGridPosX(it ring.Iterator[byte], lineIt ring.Iterator[Line], textBufStartIndexRel, charsPerLine int64) int64 {
 
 	// Find line that contains the start index
@@ -1068,12 +1036,29 @@ func getCharGridPosX(it ring.Iterator[byte], lineIt ring.Iterator[Line], textBuf
 		return 0
 	}
 
-	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(line.StartIndex_WriteCount), it.Buf.Get(uint64(textBufStartIndexRel)))
-	// PrintLine(it.Buf, line)
-	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(line.EndIndex_WriteCount), "\n")
-
 	// This doesn't consider non-printing chars for wrapping, but should be good enough
 	v1, v2 := it.Buf.ViewsFromToRelIndex(it.Buf.RelIndexFromWriteCount(line.StartIndex_WriteCount+1), uint64(textBufStartIndexRel))
+
+	// Limit runes we count to maxLineLookBack so we don't spend too much time here.
+	// All this is just so we position the last part of a wrapped line corrrectly when the full wrapped line
+	// is visible. But in a super long line like this the bottom part will never be in view at the same time as the
+	// start of the line, and so it doesn't matter that it's crazy accurate, the user will never see it.
+
+	lenV1 := int64(len(v1))
+	lenV2 := int64(len(v2))
+	lineLen := lenV1 + lenV2
+	const maxLineLookBack = 8 * 1024
+	if lineLen > maxLineLookBack {
+
+		extraLen := lineLen - maxLineLookBack
+		if extraLen <= lenV1 {
+			v1 = v1[extraLen:]
+		} else {
+			v1 = v1[lenV1:]
+			v2 = v2[extraLen-lenV1:]
+		}
+	}
+
 	runeCount := utf8.RuneCount(v1)
 	runeCount += utf8.RuneCount(v2)
 	lastCharGridPosX := runeCount % int(charsPerLine+1)
