@@ -49,14 +49,14 @@ type Cmd struct {
 	Stderr io.ReadCloser
 }
 
-// Para represents a paragraph, a series of characters between two new-lines.
+// Line represents a series of chars between two new-lines.
 // The indices are in terms of total written elements to the ring buffer
-type Para struct {
+type Line struct {
 	StartIndex_WriteCount uint64
 	EndIndex_WriteCount   uint64
 }
 
-func (l *Para) Size() uint64 {
+func (l *Line) Size() uint64 {
 	size := l.EndIndex_WriteCount - l.StartIndex_WriteCount
 	return size
 }
@@ -75,8 +75,8 @@ type nterm struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	ParaBeingParsed Para
-	Paras           *ring.Buffer[Para]
+	LineBeingParsed Line
+	Lines           *ring.Buffer[Line]
 
 	textBuf      *ring.Buffer[byte]
 	textBufMutex sync.Mutex
@@ -101,7 +101,7 @@ type nterm struct {
 
 	SepLinePos gglm.Vec3
 
-	firstValidPara *Para
+	firstValidLine *Line
 }
 
 const (
@@ -110,7 +110,7 @@ const (
 	hinting   = font.HintingNone
 
 	defaultCmdBufSize  = 4 * 1024
-	defaultParaBufSize = 10 * 1024 // Max number of paragraphs
+	defaultLineBufSize = 10 * 1024 // Max number of lines
 	defaultTextBufSize = 8 * 1024 * 1024
 
 	defaultScrollSpd = 1
@@ -149,7 +149,7 @@ func main() {
 		imguiInfo: nmageimgui.NewImGUI(),
 		FontSize:  40,
 
-		Paras: ring.NewBuffer[Para](defaultParaBufSize),
+		Lines: ring.NewBuffer[Line](defaultLineBufSize),
 
 		textBuf: ring.NewBuffer[byte](defaultTextBufSize),
 
@@ -167,7 +167,7 @@ func main() {
 			LimitFps:     true,
 		},
 
-		firstValidPara: &Para{},
+		firstValidLine: &Line{},
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, p.handleSDLEvent)
@@ -273,25 +273,25 @@ func (p *nterm) Update() {
 
 func (nt *nterm) MainUpdate() {
 
-	// Keep a reference to the first valid para
-	if !IsParaValid(nt.textBuf, nt.firstValidPara) || nt.firstValidPara.Size() == 0 {
+	// Keep a reference to the first valid line
+	if !IsLineValid(nt.textBuf, nt.firstValidLine) || nt.firstValidLine.Size() == 0 {
 
-		paraIt := nt.Paras.Iterator()
-		for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+		lineIt := nt.Lines.Iterator()
+		for p, done := lineIt.NextPtr(); !done; p, done = lineIt.NextPtr() {
 
-			paraStatus := getParaStatus(nt.textBuf, p)
-			if paraStatus == ParaStatus_Invalid {
+			lineStatus := getLineStatus(nt.textBuf, p)
+			if lineStatus == LineStatus_Invalid {
 				continue
 			}
 
 			// If start index is invalid but end index is still valid then we push the start into a valid position
-			if paraStatus == ParaStatus_PartiallyInvalid {
-				diff := nt.textBuf.WrittenElements - nt.firstValidPara.StartIndex_WriteCount
+			if lineStatus == LineStatus_PartiallyInvalid {
+				diff := nt.textBuf.WrittenElements - nt.firstValidLine.StartIndex_WriteCount
 				deltaToValid := diff - uint64(nt.textBuf.Cap) + 1 // How much we need to move startIndex to be barely valid
-				nt.firstValidPara.StartIndex_WriteCount = clamp(nt.firstValidPara.StartIndex_WriteCount+deltaToValid, 0, nt.firstValidPara.EndIndex_WriteCount-1)
+				nt.firstValidLine.StartIndex_WriteCount = clamp(nt.firstValidLine.StartIndex_WriteCount+deltaToValid, 0, nt.firstValidLine.EndIndex_WriteCount-1)
 			}
 
-			nt.firstValidPara = p
+			nt.firstValidLine = p
 			break
 		}
 	}
@@ -299,9 +299,9 @@ func (nt *nterm) MainUpdate() {
 	// We might have way more chars than lines and so the first line might not start
 	// at the first char, but midway in the buffer, so we ensure that scrollPosRel
 	// starts at the first line
-	firstValidParaStartIndexRel := int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidPara.StartIndex_WriteCount))
-	if nt.scrollPosRel < firstValidParaStartIndexRel {
-		nt.scrollPosRel = firstValidParaStartIndexRel
+	firstValidLineStartIndexRel := int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidLine.StartIndex_WriteCount))
+	if nt.scrollPosRel < firstValidLineStartIndexRel {
+		nt.scrollPosRel = firstValidLineStartIndexRel
 	}
 
 	nt.ReadInputs()
@@ -352,8 +352,8 @@ func (nt *nterm) ReadInputs() {
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_END) {
 
 		charsPerLine, _ := nt.GridSize()
-		nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Paras.Iterator(), nt.textBuf.Len-1, -nt.scrollSpd, charsPerLine-1)
-		nt.scrollPosRel = clamp(nt.scrollPosRel, int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidPara.StartIndex_WriteCount)), nt.textBuf.Len-1)
+		nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Lines.Iterator(), nt.textBuf.Len-1, -nt.scrollSpd, charsPerLine-1)
+		nt.scrollPosRel = clamp(nt.scrollPosRel, int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidLine.StartIndex_WriteCount)), nt.textBuf.Len-1)
 
 	} else if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_HOME) {
 		nt.scrollPosRel = 0
@@ -363,12 +363,12 @@ func (nt *nterm) ReadInputs() {
 
 		charsPerLine, _ := nt.GridSize()
 		if mouseWheelYNorm < 0 {
-			nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Paras.Iterator(), nt.scrollPosRel, -nt.scrollSpd, charsPerLine-1)
+			nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Lines.Iterator(), nt.scrollPosRel, -nt.scrollSpd, charsPerLine-1)
 		} else {
-			nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Paras.Iterator(), nt.scrollPosRel, nt.scrollSpd, charsPerLine-1)
+			nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Lines.Iterator(), nt.scrollPosRel, nt.scrollSpd, charsPerLine-1)
 		}
 
-		nt.scrollPosRel = clamp(nt.scrollPosRel, int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidPara.StartIndex_WriteCount)), nt.textBuf.Len-1)
+		nt.scrollPosRel = clamp(nt.scrollPosRel, int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidLine.StartIndex_WriteCount)), nt.textBuf.Len-1)
 	}
 
 	// Delete inputs
@@ -664,7 +664,7 @@ func (p *nterm) HandleReturn() {
 	}()
 }
 
-func (p *nterm) ParseParas(bs []byte) {
+func (p *nterm) ParseLines(bs []byte) {
 
 	// @TODO We should virtually break lines when they are too long
 	checkedBytes := uint64(0)
@@ -678,15 +678,15 @@ func (p *nterm) ParseParas(bs []byte) {
 		bs = bs[index+1:]
 
 		checkedBytes += uint64(index + 1)
-		p.ParaBeingParsed.EndIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
-		p.WritePara(&p.ParaBeingParsed)
-		p.ParaBeingParsed.StartIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
+		p.LineBeingParsed.EndIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
+		p.WriteLine(&p.LineBeingParsed)
+		p.LineBeingParsed.StartIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
 	}
 }
 
-func (p *nterm) WritePara(para *Para) {
-	assert.T(para.StartIndex_WriteCount <= para.EndIndex_WriteCount, "Invalid line: %+v\n", para)
-	p.Paras.Write(*para)
+func (p *nterm) WriteLine(l *Line) {
+	assert.T(l.StartIndex_WriteCount <= l.EndIndex_WriteCount, "Invalid line: %+v\n", l)
+	p.Lines.Write(*l)
 }
 
 func (p *nterm) ClearActiveCmd() {
@@ -843,7 +843,7 @@ func (p *nterm) WriteToTextBuf(text []byte) {
 	// This is locked because running cmds are potentially writing to it same time we are
 	p.textBufMutex.Lock()
 
-	p.ParseParas(text)
+	p.ParseLines(text)
 	p.textBuf.Write(text...)
 
 	p.textBufMutex.Unlock()
@@ -955,7 +955,7 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 // then returns the starting index of the nth line.
 //
 // A line is counted when either a '\n' is seen or by seeing enough chars that a wrap is required.
-func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para], startIndex, n, charsPerLine int64) (newIndex int64) {
+func FindNLinesIndexIterator(it ring.Iterator[byte], lineIt ring.Iterator[Line], startIndex, n, charsPerLine int64) (newIndex int64) {
 
 	done := false
 	read := 0
@@ -1005,15 +1005,15 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 
 	} else {
 
-		// If on the empty line between paragraphs we want to know where the last char of the previous
-		// para is so we can take into account position differences with wrapping
+		// If on the empty line between non-empty lines we want to know where the last char of the previous
+		// line is so we can take into account position differences with wrapping
 		startIndexByte := it.Buf.Get(uint64(startIndex))
 		startMinusOneIndexByte := it.Buf.Get(uint64(startIndex - 1))
 		if startIndexByte == '\n' {
 
 			if startMinusOneIndexByte == '\n' {
 
-				charsIntoLine := getCharGridPosX(it.Buf.Iterator(), paraIt, clamp(startIndex-2, 0, it.Buf.Len-1), charsPerLine)
+				charsIntoLine := getCharGridPosX(it.Buf.Iterator(), lineIt, clamp(startIndex-2, 0, it.Buf.Len-1), charsPerLine)
 				if charsIntoLine > 0 {
 					charsSeenThisLine = charsPerLine - charsIntoLine
 				}
@@ -1060,29 +1060,29 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 	return newIndex
 }
 
-func getCharGridPosX(it ring.Iterator[byte], paraIt ring.Iterator[Para], textBufStartIndexRel, charsPerLine int64) int64 {
+func getCharGridPosX(it ring.Iterator[byte], lineIt ring.Iterator[Line], textBufStartIndexRel, charsPerLine int64) int64 {
 
-	// Find para that contains the start index
-	para, _ := GetParaFromTextBufIndex(it, paraIt, uint64(textBufStartIndexRel))
-	if para == nil {
+	// Find line that contains the start index
+	line, _ := GetLineFromTextBufIndex(it, lineIt, uint64(textBufStartIndexRel))
+	if line == nil {
 		return 0
 	}
 
-	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(para.StartIndex_WriteCount), it.Buf.Get(uint64(textBufStartIndexRel)))
-	// PrintPara(it.Buf, para)
-	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(para.EndIndex_WriteCount), "\n")
+	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(line.StartIndex_WriteCount), it.Buf.Get(uint64(textBufStartIndexRel)))
+	// PrintLine(it.Buf, line)
+	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(line.EndIndex_WriteCount), "\n")
 
 	// This doesn't consider non-printing chars for wrapping, but should be good enough
-	v1, v2 := it.Buf.ViewsFromToRelIndex(it.Buf.RelIndexFromWriteCount(para.StartIndex_WriteCount+1), uint64(textBufStartIndexRel))
+	v1, v2 := it.Buf.ViewsFromToRelIndex(it.Buf.RelIndexFromWriteCount(line.StartIndex_WriteCount+1), uint64(textBufStartIndexRel))
 	runeCount := utf8.RuneCount(v1)
 	runeCount += utf8.RuneCount(v2)
 	lastCharGridPosX := runeCount % int(charsPerLine+1)
 	return int64(lastCharGridPosX)
 }
 
-func PrintPara(textBuf *ring.Buffer[byte], p *Para) {
+func PrintLine(textBuf *ring.Buffer[byte], p *Line) {
 
-	if !IsParaValid(textBuf, p) {
+	if !IsLineValid(textBuf, p) {
 		return
 	}
 
@@ -1090,31 +1090,31 @@ func PrintPara(textBuf *ring.Buffer[byte], p *Para) {
 	fmt.Println(string(v1) + string(v2))
 }
 
-func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para], textBufStartIndexRel uint64) (outPara *Para, pIndex uint64) {
+func GetLineFromTextBufIndex(it ring.Iterator[byte], lineIt ring.Iterator[Line], textBufStartIndexRel uint64) (outLine *Line, pIndex uint64) {
 
-	if paraIt.Buf.Len == 0 {
+	if lineIt.Buf.Len == 0 {
 		return
 	}
 
-	// Find first valid para
-	paraIt.GotoStart()
-	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+	// Find first valid line
+	lineIt.GotoStart()
+	for p, done := lineIt.NextPtr(); !done; p, done = lineIt.NextPtr() {
 
-		if !IsParaValid(it.Buf, p) {
+		if !IsLineValid(it.Buf, p) {
 			continue
 		}
 
-		paraIt.Prev()
+		lineIt.Prev()
 		break
 	}
 
-	// Binary search for the paragraph
-	lowIndexRel := paraIt.CurrToRelIndex()
-	highIndexRel := uint64(paraIt.Buf.Len)
+	// Binary search for the line
+	lowIndexRel := lineIt.CurrToRelIndex()
+	highIndexRel := uint64(lineIt.Buf.Len)
 	for lowIndexRel <= highIndexRel {
 
 		medianIndexRel := (lowIndexRel + highIndexRel) / 2
-		p := paraIt.Buf.GetPtr(medianIndexRel)
+		p := lineIt.Buf.GetPtr(medianIndexRel)
 
 		startIndexRel := it.Buf.RelIndexFromWriteCount(p.StartIndex_WriteCount)
 		endIndexRel := it.Buf.RelIndexFromWriteCount(p.EndIndex_WriteCount)
@@ -1124,46 +1124,46 @@ func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 		} else if textBufStartIndexRel > endIndexRel {
 			lowIndexRel = medianIndexRel + 1
 		} else {
-			outPara = p
+			outLine = p
 			pIndex = medianIndexRel
 			break
 		}
 	}
 
-	if outPara == nil {
-		panic(fmt.Sprintf("Could not find paragraph for index %d", textBufStartIndexRel))
+	if outLine == nil {
+		panic(fmt.Sprintf("Could not find line for text buffer relative index %d", textBufStartIndexRel))
 	}
 
-	return outPara, pIndex
+	return outLine, pIndex
 }
 
-type ParaStatus byte
+type LineStatus byte
 
 const (
-	ParaStatus_Unknown ParaStatus = iota
-	ParaStatus_Valid
-	// PartiallyInvalid is when the start index is invalid but the end index is in a valid position
-	ParaStatus_PartiallyInvalid
-	ParaStatus_Invalid
+	LineStatus_Unknown LineStatus = iota
+	LineStatus_Valid
+	// LineStatus_PartiallyInvalid is when the start index is invalid but the end index is in a valid position
+	LineStatus_PartiallyInvalid
+	LineStatus_Invalid
 )
 
-// IsParaValid returns true only if the status is ParaStatus_Valid
-func IsParaValid(textBuf *ring.Buffer[byte], p *Para) bool {
+// IsLineValid returns true only if the status is LineStatus_Valid
+func IsLineValid(textBuf *ring.Buffer[byte], p *Line) bool {
 	isValid := textBuf.WrittenElements-p.StartIndex_WriteCount < uint64(textBuf.Cap)
 	return isValid
 }
 
-func getParaStatus(textBuf *ring.Buffer[byte], p *Para) ParaStatus {
+func getLineStatus(textBuf *ring.Buffer[byte], p *Line) LineStatus {
 
 	startValid := textBuf.WrittenElements-p.StartIndex_WriteCount < uint64(textBuf.Cap)
 	if startValid {
-		return ParaStatus_Valid
+		return LineStatus_Valid
 	}
 
 	endValid := textBuf.WrittenElements-p.EndIndex_WriteCount < uint64(textBuf.Cap)
 	if endValid {
-		return ParaStatus_PartiallyInvalid
+		return LineStatus_PartiallyInvalid
 	}
 
-	return ParaStatus_Invalid
+	return LineStatus_Invalid
 }
