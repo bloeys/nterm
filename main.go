@@ -1096,13 +1096,10 @@ func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 		return
 	}
 
-	ticks := 0
-
-	//Find first valid para
+	// Find first valid para
 	paraIt.GotoStart()
 	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
 
-		ticks++
 		if !IsParaValid(it.Buf, p) {
 			continue
 		}
@@ -1111,25 +1108,30 @@ func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 		break
 	}
 
-	// @PERF We need a faster way of finding the current paragraph. Binary search?
-	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+	// Binary search for the paragraph
+	lowIndexRel := paraIt.CurrToRelIndex()
+	highIndexRel := uint64(paraIt.Buf.Len)
+	for lowIndexRel <= highIndexRel {
 
-		ticks++
+		medianIndexRel := (lowIndexRel + highIndexRel) / 2
+		p := paraIt.Buf.GetPtr(medianIndexRel)
+
 		startIndexRel := it.Buf.RelIndexFromWriteCount(p.StartIndex_WriteCount)
 		endIndexRel := it.Buf.RelIndexFromWriteCount(p.EndIndex_WriteCount)
-		if textBufStartIndexRel < startIndexRel || textBufStartIndexRel > endIndexRel {
-			continue
-		}
 
-		outPara = p
-		pIndex = paraIt.CurrToRelIndex()
-		break
+		if textBufStartIndexRel < startIndexRel {
+			highIndexRel = medianIndexRel - 1
+		} else if textBufStartIndexRel > endIndexRel {
+			lowIndexRel = medianIndexRel + 1
+		} else {
+			outPara = p
+			pIndex = medianIndexRel
+			break
+		}
 	}
 
-	println("Ticks to finding para:", ticks)
-
 	if outPara == nil {
-		panic("Could not find para")
+		panic(fmt.Sprintf("Could not find paragraph for index %d", textBufStartIndexRel))
 	}
 
 	return outPara, pIndex

@@ -74,6 +74,17 @@ func (b *Buffer[T]) Get(index uint64) (val T) {
 	return b.Data[(b.Start+int64(index))%b.Cap]
 }
 
+// Get returns the element at the index relative from Buffer.Start
+// If there are no elements then the default value of T is returned
+func (b *Buffer[T]) GetPtr(index uint64) (val *T) {
+
+	if index >= uint64(b.Len) {
+		return new(T)
+	}
+
+	return &b.Data[(b.Start+int64(index))%b.Cap]
+}
+
 // AbsIndexFromRel takes an index relative to Buffer.Start and returns an absolute index into Buffer.Data
 func (b *Buffer[T]) AbsIndexFromRel(relIndex uint64) uint64 {
 	return uint64((b.Start + int64(relIndex)) % b.Cap)
