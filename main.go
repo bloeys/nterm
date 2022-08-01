@@ -60,9 +60,9 @@ func (l *Para) Size() uint64 {
 	return size
 }
 
-var _ engine.Game = &program{}
+var _ engine.Game = &nterm{}
 
-type program struct {
+type nterm struct {
 	win       *engine.Window
 	rend      *rend3dgl.Rend3DGL
 	imguiInfo nmageimgui.ImguiInfo
@@ -74,8 +74,8 @@ type program struct {
 	gridMesh *meshes.Mesh
 	gridMat  *materials.Material
 
-	CurrPara Para
-	Paras    *ring.Buffer[Para]
+	ParaBeingParsed Para
+	Paras           *ring.Buffer[Para]
 
 	textBuf      *ring.Buffer[byte]
 	textBufMutex sync.Mutex
@@ -86,7 +86,7 @@ type program struct {
 	cursorCharIndex int64
 	// lastCmdCharPos is the screen pos of the last cmdBuf char drawn this frame
 	lastCmdCharPos *gglm.Vec3
-	scrollPos      int64
+	scrollPosRel   int64
 	scrollSpd      int64
 
 	CellCountX int64
@@ -107,7 +107,7 @@ const (
 	hinting   = font.HintingNone
 
 	defaultCmdBufSize  = 4 * 1024
-	defaultParaBufSize = 5 * 1024 * 1024
+	defaultParaBufSize = 4 * 1024 * 1024
 	defaultTextBufSize = 4 * 1024 * 1024
 
 	defaultScrollSpd = 1
@@ -140,7 +140,7 @@ func main() {
 	// CPU to 100% doing nothing instead of a sleep
 	engine.SetVSync(false)
 
-	p := &program{
+	p := &nterm{
 		win:       win,
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
@@ -183,7 +183,7 @@ func main() {
 	}
 }
 
-func (p *program) handleSDLEvent(e sdl.Event) {
+func (p *nterm) handleSDLEvent(e sdl.Event) {
 
 	switch e := e.(type) {
 
@@ -196,7 +196,7 @@ func (p *program) handleSDLEvent(e sdl.Event) {
 	}
 }
 
-func (p *program) Init() {
+func (p *nterm) Init() {
 
 	dpi, _, _, err := sdl.GetDisplayDPI(0)
 	if err != nil {
@@ -228,7 +228,7 @@ func (p *program) Init() {
 	p.lastCmdCharPos.SetY(p.GlyphRend.Atlas.LineHeight)
 }
 
-func (p *program) Update() {
+func (p *nterm) Update() {
 
 	p.frameStartTime = time.Now()
 
@@ -266,7 +266,7 @@ func (p *program) Update() {
 	p.MainUpdate()
 }
 
-func (p *program) MainUpdate() {
+func (p *nterm) MainUpdate() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
 		p.cursorCharIndex = p.cmdBufLen // This is so \n is written to the end of the cmdBuf
@@ -288,19 +288,21 @@ func (p *program) MainUpdate() {
 	}
 
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_END) {
-		p.scrollPos = p.textBuf.Len - 1
+		p.scrollPosRel = p.textBuf.Len - 1
+	} else if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_HOME) {
+		p.scrollPosRel = 0
 	}
 
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
 		charsPerLine, _ := p.GridSize()
 		if mouseWheelYNorm < 0 {
-			p.scrollPos = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPos, -p.scrollSpd, charsPerLine-1)
+			p.scrollPosRel = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPosRel, -p.scrollSpd, charsPerLine-1)
 		} else {
-			p.scrollPos = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPos, p.scrollSpd, charsPerLine-1)
+			p.scrollPosRel = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPosRel, p.scrollSpd, charsPerLine-1)
 		}
 
-		p.scrollPos = clamp(p.scrollPos, 0, p.textBuf.Len-1)
+		p.scrollPosRel = clamp(p.scrollPosRel, 0, p.textBuf.Len-1)
 	}
 
 	// Delete inputs
@@ -318,7 +320,7 @@ func (p *program) MainUpdate() {
 
 	// Draw textBuf
 	gw, gh := p.GridSize()
-	v1, v2 := p.textBuf.ViewsFromToRelIndex(uint64(p.scrollPos), uint64(p.scrollPos)+uint64(gw*gh))
+	v1, v2 := p.textBuf.ViewsFromToRelIndex(uint64(p.scrollPosRel), uint64(p.scrollPosRel)+uint64(gw*gh))
 
 	p.lastCmdCharPos.Data = gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0).Data
 	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *p.lastCmdCharPos).Data
@@ -330,7 +332,7 @@ func (p *program) MainUpdate() {
 	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
 }
 
-func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
+func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 	currColor := p.Settings.DefaultColor
 
@@ -386,7 +388,7 @@ func (p *program) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 	return pos
 }
 
-func (p *program) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
+func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 
 	startIndex := 0
 	startPos := pos.Clone()
@@ -462,7 +464,7 @@ func (p *program) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 	return pos
 }
 
-func (p *program) DeletePrevChar() {
+func (p *nterm) DeletePrevChar() {
 
 	if p.cursorCharIndex == 0 || p.cmdBufLen == 0 {
 		return
@@ -474,7 +476,7 @@ func (p *program) DeletePrevChar() {
 	p.cursorCharIndex--
 }
 
-func (p *program) DeleteNextChar() {
+func (p *nterm) DeleteNextChar() {
 
 	if p.cmdBufLen == 0 || p.cursorCharIndex == p.cmdBufLen {
 		return
@@ -485,7 +487,7 @@ func (p *program) DeleteNextChar() {
 	p.cmdBufLen--
 }
 
-func (p *program) HandleReturn() {
+func (p *nterm) HandleReturn() {
 
 	cmdRunes := p.cmdBuf[:p.cmdBufLen]
 	p.cmdBufLen = 0
@@ -612,7 +614,7 @@ func (p *program) HandleReturn() {
 	}()
 }
 
-func (p *program) ParseParas(bs []byte) {
+func (p *nterm) ParseParas(bs []byte) {
 
 	checkedBytes := uint64(0)
 	for len(bs) > 0 {
@@ -625,13 +627,13 @@ func (p *program) ParseParas(bs []byte) {
 		bs = bs[index+1:]
 
 		checkedBytes += uint64(index + 1)
-		p.CurrPara.EndIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
-		p.WritePara(&p.CurrPara)
-		p.CurrPara.StartIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
+		p.ParaBeingParsed.EndIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
+		p.WritePara(&p.ParaBeingParsed)
+		p.ParaBeingParsed.StartIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
 	}
 }
 
-func (p *program) WritePara(para *Para) {
+func (p *nterm) WritePara(para *Para) {
 	assert.T(para.StartIndex_WriteCount <= para.EndIndex_WriteCount, "Invalid line: %+v\n", para)
 	p.Paras.Write(*para)
 }
@@ -641,7 +643,7 @@ func IsParaValid(textBuf *ring.Buffer[byte], p *Para) bool {
 	return isValid
 }
 
-func (p *program) ClearActiveCmd() {
+func (p *nterm) ClearActiveCmd() {
 
 	if p.activeCmd == nil {
 		return
@@ -650,7 +652,7 @@ func (p *program) ClearActiveCmd() {
 	p.activeCmd = nil
 }
 
-func (p *program) DrawCursor() {
+func (p *nterm) DrawCursor() {
 
 	//Position cursor by placing it at the end of the drawn characters then walking backwards
 	pos := p.lastCmdCharPos.Clone()
@@ -670,16 +672,16 @@ func (p *program) DrawCursor() {
 }
 
 // GridSize returns how many cells horizontally (aka chars per line) and how many cells vertically (aka lines)
-func (p *program) GridSize() (w, h int64) {
+func (p *nterm) GridSize() (w, h int64) {
 	return int64(p.GlyphRend.ScreenWidth) / int64(p.GlyphRend.Atlas.SpaceAdvance), int64(p.GlyphRend.ScreenHeight) / int64(p.GlyphRend.Atlas.LineHeight)
 }
 
-func (p *program) ScreenPosToGridPos(screenPos *gglm.Vec3) {
+func (p *nterm) ScreenPosToGridPos(screenPos *gglm.Vec3) {
 	screenPos.SetX(screenPos.X() / p.GlyphRend.Atlas.SpaceAdvance * p.GlyphRend.Atlas.SpaceAdvance)
 	screenPos.SetY(screenPos.Y() / p.GlyphRend.Atlas.LineHeight * p.GlyphRend.Atlas.LineHeight)
 }
 
-func (p *program) DebugUpdate() {
+func (p *nterm) DebugUpdate() {
 
 	//Move text
 	var speed float32 = 1
@@ -701,7 +703,7 @@ func (p *program) DebugUpdate() {
 	}
 }
 
-func (p *program) Render() {
+func (p *nterm) Render() {
 
 	defer p.GlyphRend.Draw()
 
@@ -715,7 +717,7 @@ func (p *program) Render() {
 	p.DrawCursor()
 }
 
-func (p *program) DebugRender() {
+func (p *nterm) DebugRender() {
 
 	if drawGrid {
 		p.DrawGrid()
@@ -741,7 +743,7 @@ func (p *program) DebugRender() {
 	}
 }
 
-func (p *program) DrawGrid() {
+func (p *nterm) DrawGrid() {
 
 	sizeX := float32(p.GlyphRend.ScreenWidth)
 	sizeY := float32(p.GlyphRend.ScreenHeight)
@@ -758,7 +760,7 @@ func (p *program) DrawGrid() {
 	}
 }
 
-func (p *program) FrameEnd() {
+func (p *nterm) FrameEnd() {
 	assert.T(p.cursorCharIndex <= p.cmdBufLen, "Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", p.cursorCharIndex, p.cmdBufLen)
 
 	if p.Settings.LimitFps {
@@ -776,10 +778,10 @@ func (p *program) FrameEnd() {
 	}
 }
 
-func (p *program) DeInit() {
+func (p *nterm) DeInit() {
 }
 
-func (p *program) HandleWindowResize() {
+func (p *nterm) HandleWindowResize() {
 	w, h := p.win.SDLWin.GetSize()
 	p.GlyphRend.SetScreenSize(w, h)
 
@@ -791,7 +793,7 @@ func (p *program) HandleWindowResize() {
 	p.CellCount = p.CellCountX * p.CellCountY
 }
 
-func (p *program) WriteToTextBuf(text []byte) {
+func (p *nterm) WriteToTextBuf(text []byte) {
 	// This is locked because running cmds are potentially writing to it same time we are
 	p.textBufMutex.Lock()
 
@@ -801,10 +803,10 @@ func (p *program) WriteToTextBuf(text []byte) {
 	p.textBufMutex.Unlock()
 
 	// @Todo we need better handling here
-	p.scrollPos = clamp(p.Paras.Len-p.CellCountY+3, 0, p.Paras.Len)
+	p.scrollPosRel = clamp(p.Paras.Len-p.CellCountY+3, 0, p.Paras.Len)
 }
 
-func (p *program) WriteToCmdBuf(text []rune) {
+func (p *nterm) WriteToCmdBuf(text []rune) {
 
 	delta := int64(len(text))
 	newHeadPos := p.cmdBufLen + delta
@@ -907,12 +909,9 @@ func FindNthOrLastIndex[T comparable](arr []T, x T, startIndex, n int64) (lastIn
 }
 
 // FindNLinesIndexIterator starts at startIndex and moves n lines forward/backward, depending on whether 'n' is negative or positive,
-// then returns the index of the nth line and the size of char in bytes that preceeds the line.
+// then returns the starting index of the nth line.
 //
 // A line is counted when either a '\n' is seen or by seeing enough chars that a wrap is required.
-//
-// Note: When moving backwards from the start of the line, the first char will be a new line (e.g. \n), so the first counted line is not a full line
-// but only a single rune. So in most cases to get '-n' lines backwards you should request '-n-1' lines.
 func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para], startIndex, n, charsPerLine int64) (newIndex int64) {
 
 	done := false
@@ -1020,35 +1019,10 @@ func FindNLinesIndexIterator(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 
 func getCharGridPosX(it ring.Iterator[byte], paraIt ring.Iterator[Para], textBufStartIndexRel, charsPerLine int64) int64 {
 
-	// @PERF We need a faster way of finding the current paragraph
 	// Find para that contains the start index
-	var para *Para
-	paraIt.GotoStart()
-	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
-
-		if !IsParaValid(it.Buf, p) {
-			continue
-		}
-
-		startIndexRel := it.Buf.RelIndexFromWriteCount(p.StartIndex_WriteCount)
-		endIndexRel := it.Buf.RelIndexFromWriteCount(p.EndIndex_WriteCount)
-		if textBufStartIndexRel < int64(startIndexRel) || textBufStartIndexRel > int64(endIndexRel) {
-			continue
-		}
-
-		para = p
-		break
-	}
-
+	para, _ := GetParaFromTextBufIndex(it, paraIt, uint64(textBufStartIndexRel))
 	if para == nil {
-
-		paraIt.GotoEnd()
-		para, _ = paraIt.PrevPtr()
-
-		// If there are no paragraphs we just return the startIndex
-		if para == nil {
-			return 0
-		}
+		return 0
 	}
 
 	// println("-----------------------------------", it.Buf.RelIndexFromWriteCount(para.StartIndex_WriteCount), it.Buf.Get(uint64(textBufStartIndexRel)))
@@ -1071,4 +1045,34 @@ func PrintPara(textBuf *ring.Buffer[byte], p *Para) {
 
 	v1, v2 := textBuf.ViewsFromToWriteCount(p.StartIndex_WriteCount, p.EndIndex_WriteCount)
 	fmt.Println(string(v1) + string(v2))
+}
+
+func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para], textBufStartIndexRel uint64) (outPara *Para, pIndex uint64) {
+
+	// @PERF We need a faster way of finding the current paragraph
+	paraIt.GotoStart()
+	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+
+		if !IsParaValid(it.Buf, p) {
+			continue
+		}
+
+		endIndexRel := it.Buf.RelIndexFromWriteCount(p.EndIndex_WriteCount)
+		if textBufStartIndexRel > endIndexRel {
+			continue
+		}
+
+		outPara = p
+		pIndex = paraIt.CurrToRelIndex()
+		break
+	}
+
+	if outPara == nil {
+
+		paraIt.GotoEnd()
+		outPara, _ = paraIt.PrevPtr()
+		pIndex = paraIt.CurrToRelIndex()
+	}
+
+	return outPara, pIndex
 }
