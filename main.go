@@ -52,7 +52,8 @@ type Cmd struct {
 // Para represents a paragraph, a series of characters between two new-lines.
 // The indices are in terms of total written elements to the ring buffer
 type Para struct {
-	StartIndex_WriteCount, EndIndex_WriteCount uint64
+	StartIndex_WriteCount uint64
+	EndIndex_WriteCount   uint64
 }
 
 func (l *Para) Size() uint64 {
@@ -99,6 +100,8 @@ type nterm struct {
 	frameStartTime time.Time
 
 	SepLinePos gglm.Vec3
+
+	firstValidPara *Para
 }
 
 const (
@@ -107,8 +110,8 @@ const (
 	hinting   = font.HintingNone
 
 	defaultCmdBufSize  = 4 * 1024
-	defaultParaBufSize = 4 * 1024 * 1024
-	defaultTextBufSize = 4 * 1024 * 1024
+	defaultParaBufSize = 10 * 1024 // Max number of paragraphs
+	defaultTextBufSize = 8 * 1024 * 1024
 
 	defaultScrollSpd = 1
 )
@@ -163,6 +166,8 @@ func main() {
 			MaxFps:       120,
 			LimitFps:     true,
 		},
+
+		firstValidPara: &Para{},
 	}
 
 	p.win.EventCallbacks = append(p.win.EventCallbacks, p.handleSDLEvent)
@@ -266,70 +271,98 @@ func (p *nterm) Update() {
 	p.MainUpdate()
 }
 
-func (p *nterm) MainUpdate() {
+func (nt *nterm) MainUpdate() {
+
+	// Keep a reference to the first valid para
+	if !IsParaValid(nt.textBuf, nt.firstValidPara) || nt.firstValidPara.Size() == 0 {
+
+		paraIt := nt.Paras.Iterator()
+		for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+
+			if !IsParaValid(nt.textBuf, p) {
+				continue
+			}
+
+			nt.firstValidPara = p
+			break
+		}
+	}
+
+	// We might have way more chars than lines and so the first line might not start
+	// at the first char, but midway in the buffer, so we ensure that scrollPosRel
+	// starts at the first line
+	firstValidParaStartIndexRel := int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidPara.StartIndex_WriteCount))
+	if nt.scrollPosRel < firstValidParaStartIndexRel {
+		nt.scrollPosRel = firstValidParaStartIndexRel
+	}
+
+	nt.ReadInputs()
+
+	// Line separator
+	nt.SepLinePos.SetY(2 * nt.GlyphRend.Atlas.LineHeight)
+
+	// Draw textBuf
+	gw, gh := nt.GridSize()
+	v1, v2 := nt.textBuf.ViewsFromToRelIndex(uint64(nt.scrollPosRel), uint64(nt.scrollPosRel)+uint64(gw*gh))
+
+	nt.lastCmdCharPos.Data = gglm.NewVec3(0, float32(nt.GlyphRend.ScreenHeight)-nt.GlyphRend.Atlas.LineHeight, 0).Data
+	nt.lastCmdCharPos.Data = nt.DrawTextAnsiCodes(v1, *nt.lastCmdCharPos).Data
+	nt.lastCmdCharPos.Data = nt.DrawTextAnsiCodes(v2, *nt.lastCmdCharPos).Data
+
+	// Draw cmd buf
+	nt.lastCmdCharPos.SetX(0)
+	nt.lastCmdCharPos.SetY(nt.SepLinePos.Y() - nt.GlyphRend.Atlas.LineHeight)
+	nt.lastCmdCharPos.Data = nt.SyntaxHighlightAndDraw(nt.cmdBuf[:nt.cmdBufLen], *nt.lastCmdCharPos).Data
+}
+
+func (nt *nterm) ReadInputs() {
 
 	if input.KeyClicked(sdl.K_RETURN) || input.KeyClicked(sdl.K_KP_ENTER) {
-		p.cursorCharIndex = p.cmdBufLen // This is so \n is written to the end of the cmdBuf
-		p.WriteToCmdBuf([]rune{'\n'})
-		p.HandleReturn()
+		nt.cursorCharIndex = nt.cmdBufLen // This is so \n is written to the end of the cmdBuf
+		nt.WriteToCmdBuf([]rune{'\n'})
+		nt.HandleReturn()
 	}
 
 	// Cursor movement and scroll
 	if input.KeyClicked(sdl.K_LEFT) {
-		p.cursorCharIndex = clamp(p.cursorCharIndex-1, 0, p.cmdBufLen)
+		nt.cursorCharIndex = clamp(nt.cursorCharIndex-1, 0, nt.cmdBufLen)
 	} else if input.KeyClicked(sdl.K_RIGHT) {
-		p.cursorCharIndex = clamp(p.cursorCharIndex+1, 0, p.cmdBufLen)
+		nt.cursorCharIndex = clamp(nt.cursorCharIndex+1, 0, nt.cmdBufLen)
 	}
 
 	if input.KeyClicked(sdl.K_HOME) {
-		p.cursorCharIndex = 0
+		nt.cursorCharIndex = 0
 	} else if input.KeyClicked(sdl.K_END) {
-		p.cursorCharIndex = p.cmdBufLen
+		nt.cursorCharIndex = nt.cmdBufLen
 	}
 
 	if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_END) {
-		p.scrollPosRel = p.textBuf.Len - 1
+		nt.scrollPosRel = nt.textBuf.Len - 1
 	} else if input.KeyDown(sdl.K_LCTRL) && input.KeyClicked(sdl.K_HOME) {
-		p.scrollPosRel = 0
+		nt.scrollPosRel = 0
 	}
 
 	if mouseWheelYNorm := -int64(input.GetMouseWheelYNorm()); mouseWheelYNorm != 0 {
 
-		charsPerLine, _ := p.GridSize()
+		charsPerLine, _ := nt.GridSize()
 		if mouseWheelYNorm < 0 {
-			p.scrollPosRel = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPosRel, -p.scrollSpd, charsPerLine-1)
+			nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Paras.Iterator(), nt.scrollPosRel, -nt.scrollSpd, charsPerLine-1)
 		} else {
-			p.scrollPosRel = FindNLinesIndexIterator(p.textBuf.Iterator(), p.Paras.Iterator(), p.scrollPosRel, p.scrollSpd, charsPerLine-1)
+			nt.scrollPosRel = FindNLinesIndexIterator(nt.textBuf.Iterator(), nt.Paras.Iterator(), nt.scrollPosRel, nt.scrollSpd, charsPerLine-1)
 		}
 
-		p.scrollPosRel = clamp(p.scrollPosRel, 0, p.textBuf.Len-1)
+		nt.scrollPosRel = clamp(nt.scrollPosRel, int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidPara.StartIndex_WriteCount)), nt.textBuf.Len-1)
 	}
 
 	// Delete inputs
 	// @TODO: Implement hold to delete
 	if input.KeyClicked(sdl.K_BACKSPACE) {
-		p.DeletePrevChar()
+		nt.DeletePrevChar()
 	}
 
 	if input.KeyClicked(sdl.K_DELETE) {
-		p.DeleteNextChar()
+		nt.DeleteNextChar()
 	}
-
-	// Line separator
-	p.SepLinePos.SetY(2 * p.GlyphRend.Atlas.LineHeight)
-
-	// Draw textBuf
-	gw, gh := p.GridSize()
-	v1, v2 := p.textBuf.ViewsFromToRelIndex(uint64(p.scrollPosRel), uint64(p.scrollPosRel)+uint64(gw*gh))
-
-	p.lastCmdCharPos.Data = gglm.NewVec3(0, float32(p.GlyphRend.ScreenHeight)-p.GlyphRend.Atlas.LineHeight, 0).Data
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v1, *p.lastCmdCharPos).Data
-	p.lastCmdCharPos.Data = p.DrawTextAnsiCodes(v2, *p.lastCmdCharPos).Data
-
-	// Draw cmd buf
-	p.lastCmdCharPos.SetX(0)
-	p.lastCmdCharPos.SetY(p.SepLinePos.Y() - p.GlyphRend.Atlas.LineHeight)
-	p.lastCmdCharPos.Data = p.SyntaxHighlightAndDraw(p.cmdBuf[:p.cmdBufLen], *p.lastCmdCharPos).Data
 }
 
 func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
@@ -801,9 +834,6 @@ func (p *nterm) WriteToTextBuf(text []byte) {
 	p.textBuf.Write(text...)
 
 	p.textBufMutex.Unlock()
-
-	// @Todo we need better handling here
-	p.scrollPosRel = clamp(p.Paras.Len-p.CellCountY+3, 0, p.Paras.Len)
 }
 
 func (p *nterm) WriteToCmdBuf(text []rune) {
@@ -1049,16 +1079,32 @@ func PrintPara(textBuf *ring.Buffer[byte], p *Para) {
 
 func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para], textBufStartIndexRel uint64) (outPara *Para, pIndex uint64) {
 
-	// @PERF We need a faster way of finding the current paragraph
+	if paraIt.Buf.Len == 0 {
+		return
+	}
+
+	ticks := 0
+
+	//Find first valid para
 	paraIt.GotoStart()
 	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
 
+		ticks++
 		if !IsParaValid(it.Buf, p) {
 			continue
 		}
 
+		paraIt.Prev()
+		break
+	}
+
+	// @PERF We need a faster way of finding the current paragraph. Binary search?
+	for p, done := paraIt.NextPtr(); !done; p, done = paraIt.NextPtr() {
+
+		ticks++
+		startIndexRel := it.Buf.RelIndexFromWriteCount(p.StartIndex_WriteCount)
 		endIndexRel := it.Buf.RelIndexFromWriteCount(p.EndIndex_WriteCount)
-		if textBufStartIndexRel > endIndexRel {
+		if textBufStartIndexRel < startIndexRel || textBufStartIndexRel > endIndexRel {
 			continue
 		}
 
@@ -1067,11 +1113,10 @@ func GetParaFromTextBufIndex(it ring.Iterator[byte], paraIt ring.Iterator[Para],
 		break
 	}
 
-	if outPara == nil {
+	// println("Ticks to finding para:", ticks)
 
-		paraIt.GotoEnd()
-		outPara, _ = paraIt.PrevPtr()
-		pIndex = paraIt.CurrToRelIndex()
+	if outPara == nil {
+		panic("Could not find para")
 	}
 
 	return outPara, pIndex
