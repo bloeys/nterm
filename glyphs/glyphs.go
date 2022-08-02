@@ -11,6 +11,7 @@ import (
 	"github.com/bloeys/nmage/buffers"
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
+	"github.com/bloeys/nterm/assert"
 	"github.com/bloeys/nterm/consts"
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/golang/freetype/truetype"
@@ -27,6 +28,19 @@ var (
 	RuneInfos map[rune]RuneInfo
 )
 
+type GlyphRendOpt uint64
+
+const (
+	GlyphRendOpt_None    GlyphRendOpt = 0
+	GlyphRendOpt_BgColor GlyphRendOpt = 1 << (iota - 1)
+	GlyphRendOpt_Underline
+	GlyphRendOpt_COUNT GlyphRendOpt = iota
+)
+
+type GlyphRendOptValues struct {
+	BgColor *gglm.Vec4
+}
+
 type GlyphRend struct {
 	Atlas    *FontAtlas
 	AtlasTex *assets.Texture
@@ -37,18 +51,35 @@ type GlyphRend struct {
 	TextRunsBuf  []TextRun
 
 	GlyphCount uint32
-	//NOTE: Because of the sad realities (bugs?) of CGO, passing an array in a struct
-	//to C explodes (Go pointer to Go pointer error) even though passing the same array
-	//allocated inside the function is fine (Go potentially can't detect what's happening properly).
-	//
 	//Luckily slices still work, so for now we will use our slice as an array (no appending)
 	GlyphVBO []float32
-	// GlyphVBO [floatsPerGlyph * maxGlyphsPerBatch]float32
 
 	ScreenWidth  int32
 	ScreenHeight int32
 
 	SpacesPerTab uint
+
+	Opts      GlyphRendOpt
+	OptValues GlyphRendOptValues
+}
+
+func (gr *GlyphRend) SetOpts(opts ...GlyphRendOpt) {
+
+	for _, v := range opts {
+		assert.T(v <= (1<<(GlyphRendOpt_COUNT-2)), "Invalid opts of value %d", opts)
+
+		if v == GlyphRendOpt_None {
+			gr.Opts = GlyphRendOpt_None
+		} else {
+			gr.Opts |= v
+		}
+	}
+
+	gl.ProgramUniform1ui(gr.GlyphMat.ShaderProg.ID, gr.GlyphMat.GetUnifLoc("opts1"), uint32(gr.Opts))
+}
+
+func (gr *GlyphRend) HasOpt(opt GlyphRendOpt) bool {
+	return gr.Opts&opt != 0
 }
 
 //DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
@@ -273,6 +304,18 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRectWithStartPos(text []rune, startPos, re
 // @Debug
 var PrintPositions bool
 
+func (gr *GlyphRend) GridSize() (w, h int64) {
+	w = int64(gr.ScreenWidth) / int64(gr.Atlas.SpaceAdvance)
+	h = int64(gr.ScreenHeight) / int64(gr.Atlas.LineHeight)
+	return w, h
+}
+
+func (gr *GlyphRend) ScreenPosToGridPos(x, y float32) (gridX, gridY float32) {
+	gridX = floorF32(x / gr.Atlas.SpaceAdvance)
+	gridY = floorF32(y / gr.Atlas.LineHeight)
+	return gridX, gridY
+}
+
 func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
 
 	r := run.Runes[i]
@@ -317,6 +360,42 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3
 	}
 
 	//Add the glyph information to the vbo
+	if gr.HasOpt(GlyphRendOpt_BgColor) {
+		//UV
+		gr.GlyphVBO[*bufIndex+0] = -1
+		gr.GlyphVBO[*bufIndex+1] = -1
+		*bufIndex += 2
+
+		//UVSize
+		gr.GlyphVBO[*bufIndex+0] = 0
+		gr.GlyphVBO[*bufIndex+1] = 0
+		*bufIndex += 2
+
+		//Color
+		gr.GlyphVBO[*bufIndex+0] = gr.OptValues.BgColor.R()
+		gr.GlyphVBO[*bufIndex+1] = gr.OptValues.BgColor.G()
+		gr.GlyphVBO[*bufIndex+2] = gr.OptValues.BgColor.B()
+		gr.GlyphVBO[*bufIndex+3] = gr.OptValues.BgColor.A()
+		*bufIndex += 4
+
+		//Model Pos
+		gr.GlyphVBO[*bufIndex+0] = pos.X()
+		gr.GlyphVBO[*bufIndex+1] = pos.Y()
+		gr.GlyphVBO[*bufIndex+2] = pos.Z()
+		*bufIndex += 3
+
+		//Model Scale
+		gr.GlyphVBO[*bufIndex+0] = gr.Atlas.SpaceAdvance
+		gr.GlyphVBO[*bufIndex+1] = lineHeightF32
+		*bufIndex += 2
+
+		gr.GlyphCount++
+		if gr.GlyphCount == DefaultGlyphsPerBatch {
+			gr.Draw()
+			*bufIndex = 0
+		}
+	}
+
 	//UV
 	gr.GlyphVBO[*bufIndex+0] = g.U
 	gr.GlyphVBO[*bufIndex+1] = g.V
@@ -598,7 +677,8 @@ func (gr *GlyphRend) updateFontAtlasTexture() error {
 
 	//Update material
 	gr.GlyphMat.DiffuseTex = gr.AtlasTex.TexID
-	// gr.GlyphMat.SetUnifVec2("sizeUV", &gr.Atlas.SizeUV)
+	// gr.GlyphMat.SetUnifFloat32("spaceAdv", gr.Atlas.SpaceAdvance)
+	// gr.GlyphMat.SetUnifFloat32("lineHeight", gr.Atlas.LineHeight)
 
 	return nil
 }
@@ -631,6 +711,11 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 		GlyphVBO:     make([]float32, floatsPerGlyph*DefaultGlyphsPerBatch),
 		TextRunsBuf:  make([]TextRun, 0, 20),
 		SpacesPerTab: 4,
+
+		Opts: GlyphRendOpt_None,
+		OptValues: GlyphRendOptValues{
+			BgColor: gglm.NewVec4(0, 0, 0, 0),
+		},
 	}
 
 	//Create glyph mesh

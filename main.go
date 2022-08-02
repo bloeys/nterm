@@ -122,6 +122,7 @@ var (
 	drawManyLines = false
 
 	textToShow = ""
+	// textToShow = "Hello there, friend!"
 
 	xOff float32 = 0
 	yOff float32 = 0
@@ -216,6 +217,9 @@ func (p *nterm) Init() {
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
+
+	p.GlyphRend.OptValues.BgColor = gglm.NewVec4(1, 0, 0, 0.25)
+	// p.GlyphRend.SetOpts(glyphs.GlyphRendOpt_BgColor)
 
 	// if consts.Mode_Debug {
 	// glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
@@ -703,7 +707,6 @@ func (p *nterm) DrawCursor() {
 
 	//Position cursor by placing it at the end of the drawn characters then walking backwards
 	pos := p.lastCmdCharPos.Clone()
-	p.ScreenPosToGridPos(pos)
 
 	pos.AddY(p.GlyphRend.Atlas.LineHeight * 0.5)
 	for i := clamp(p.cmdBufLen, 0, int64(len(p.cmdBuf))); i > p.cursorCharIndex; i-- {
@@ -726,8 +729,8 @@ func (p *nterm) GridSize() (w, h int64) {
 }
 
 func (p *nterm) ScreenPosToGridPos(screenPos *gglm.Vec3) {
-	screenPos.SetX(screenPos.X() / p.GlyphRend.Atlas.SpaceAdvance * p.GlyphRend.Atlas.SpaceAdvance)
-	screenPos.SetY(screenPos.Y() / p.GlyphRend.Atlas.LineHeight * p.GlyphRend.Atlas.LineHeight)
+	screenPos.SetX(FloorF32(screenPos.X() / p.GlyphRend.Atlas.SpaceAdvance))
+	screenPos.SetY(FloorF32(screenPos.Y() / p.GlyphRend.Atlas.LineHeight))
 }
 
 func (p *nterm) DebugUpdate() {
