@@ -131,6 +131,10 @@ const (
 	AnsiCodeOptions_Unknown AnsiCodeOptions = 0
 )
 
+func (a AnsiCodeOptions) HasOptions(opts AnsiCodeOptions) bool {
+	return a&opts != 0
+}
+
 type AnsiCodeInfo struct {
 	Type CSIType
 	// When type is CSIType_SGR and the code is reset info1.X=-1
@@ -278,6 +282,8 @@ func ParseSGRArgs(info *AnsiCodeInfo, args []byte) {
 			continue
 		}
 
+		// @TODO We can't use this setup of one info field because one ansi code can have many settings.
+		// For example, it can set Fg+Bg at once. So we need info per option.
 		intCode := getSgrIntCodeFromBytes(a)
 		if intCode >= 30 && intCode <= 37 || intCode >= 90 && intCode <= 97 {
 

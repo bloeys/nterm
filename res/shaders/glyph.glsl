@@ -14,7 +14,6 @@ layout(location=5) in vec2 aModelScale;
 out vec2 v2fUV0;
 out vec4 v2fColor;
 out vec3 v2fModelPos;
-out vec3 v2fFragPos;
 
 uniform mat4 projViewMat;
 
@@ -40,7 +39,6 @@ void main()
 in vec2 v2fUV0;
 in vec4 v2fColor;
 in vec3 v2fModelPos;
-in vec4 gl_FragCoord;
 
 out vec4 fragColor;
 

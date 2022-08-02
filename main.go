@@ -35,8 +35,9 @@ import (
 )
 
 type Settings struct {
-	DefaultColor gglm.Vec4
-	StringColor  gglm.Vec4
+	DefaultFgColor gglm.Vec4
+	DefaultBgColor gglm.Vec4
+	StringColor    gglm.Vec4
 
 	MaxFps   int
 	LimitFps bool
@@ -163,10 +164,11 @@ func main() {
 		scrollSpd: defaultScrollSpd,
 
 		Settings: &Settings{
-			DefaultColor: *gglm.NewVec4(1, 1, 1, 1),
-			StringColor:  *gglm.NewVec4(242/255.0, 244/255.0, 10/255.0, 1),
-			MaxFps:       120,
-			LimitFps:     true,
+			DefaultFgColor: *gglm.NewVec4(1, 1, 1, 1),
+			DefaultBgColor: *gglm.NewVec4(0, 0, 0, 0),
+			StringColor:    *gglm.NewVec4(242/255.0, 244/255.0, 10/255.0, 1),
+			MaxFps:         120,
+			LimitFps:       true,
 		},
 
 		firstValidLine: &Line{},
@@ -218,8 +220,8 @@ func (p *nterm) Init() {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
 
-	p.GlyphRend.OptValues.BgColor = gglm.NewVec4(1, 0, 0, 0.25)
-	// p.GlyphRend.SetOpts(glyphs.GlyphRendOpt_BgColor)
+	p.GlyphRend.OptValues.BgColor = gglm.NewVec4(0, 0, 0, 0)
+	p.GlyphRend.SetOpts(glyphs.GlyphRendOpt_BgColor)
 
 	// if consts.Mode_Debug {
 	// glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
@@ -389,9 +391,12 @@ func (nt *nterm) ReadInputs() {
 
 func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
-	currColor := p.Settings.DefaultColor
+	currFgColor := p.Settings.DefaultFgColor
+	currBgColor := p.Settings.DefaultBgColor
 
 	draw := func(rs []rune) {
+
+		p.GlyphRend.OptValues.BgColor.Data = currBgColor.Data
 
 		startIndex := 0
 		for i := 0; i < len(rs); i++ {
@@ -400,7 +405,7 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 			// @PERF We could probably use bytes.IndexByte here
 			if r == '\n' {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currColor).Data
+				pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currFgColor).Data
 				pos.SetX(0)
 				pos.AddY(-p.GlyphRend.Atlas.LineHeight)
 				startIndex = i + 1
@@ -409,7 +414,7 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 		}
 
 		if startIndex < len(rs) {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currFgColor).Data
 		}
 	}
 
@@ -427,12 +432,20 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 		//Apply code
 		info := ansi.InfoFromAnsiCode(code)
-		if info.Options&ansi.AnsiCodeOptions_ColorFg != 0 {
+		if info.Options.HasOptions(ansi.AnsiCodeOptions_ColorFg) {
 
 			if info.Info1.X() == -1 {
-				currColor = p.Settings.DefaultColor
+				currFgColor = p.Settings.DefaultFgColor
 			} else {
-				currColor = info.Info1
+				currFgColor = info.Info1
+			}
+		}
+
+		if info.Options.HasOptions(ansi.AnsiCodeOptions_ColorBg) {
+			if info.Info1.X() == -1 {
+				currBgColor = p.Settings.DefaultBgColor
+			} else {
+				currBgColor = info.Info1
 			}
 		}
 
@@ -447,7 +460,7 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 
 	startIndex := 0
 	startPos := pos.Clone()
-	currColor := &p.Settings.DefaultColor
+	currColor := &p.Settings.DefaultFgColor
 
 	inSingleString := false
 	inDoubleString := false
@@ -485,7 +498,7 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, currColor).Data
 			startIndex = i + 1
 			inDoubleString = false
-			currColor = &p.Settings.DefaultColor
+			currColor = &p.Settings.DefaultFgColor
 
 		case '\'':
 			if inDoubleString {
@@ -504,7 +517,7 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, &p.Settings.StringColor).Data
 			startIndex = i + 1
 			inSingleString = false
-			currColor = &p.Settings.DefaultColor
+			currColor = &p.Settings.DefaultFgColor
 		}
 	}
 
@@ -512,7 +525,7 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 		if inDoubleString || inSingleString {
 			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.StringColor).Data
 		} else {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.DefaultColor).Data
+			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.DefaultFgColor).Data
 		}
 	}
 
@@ -782,12 +795,12 @@ func (p *nterm) DebugRender() {
 		if drawManyLines {
 			const charsPerFrame = 500_000
 			for i := 0; i < charsPerFrame/charCount; i++ {
-				p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
+				p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultFgColor)
 			}
 			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
 		} else {
 			charsPerFrame := float64(charCount)
-			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultColor)
+			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultFgColor)
 			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 		}
 	} else {
