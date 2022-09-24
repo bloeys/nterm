@@ -459,10 +459,8 @@ func (nt *nterm) DrawTextAnsiCodesOnGlyphGrid(bs []byte) {
 
 			if payload.Type.HasOption(ansi.AnsiCodePayloadType_ColorFg) {
 				currFgColor = payload.Info
-				println("settings fg color to", payload.Info.String())
 			} else if payload.Type.HasOption(ansi.AnsiCodePayloadType_ColorBg) {
 				currBgColor = payload.Info
-				println("settings bg color to", payload.Info.String())
 			}
 		}
 
