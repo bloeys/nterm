@@ -127,7 +127,7 @@ const (
 	AnsiCodeOptions_LineAbs
 	AnsiCodeOptions_ScrollOffset
 
-	// This is at the bottom so iota starts at 0
+	// This is at the bottom so the above iota starts at 0
 	AnsiCodeOptions_Unknown AnsiCodeOptions = 0
 )
 

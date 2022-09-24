@@ -91,7 +91,7 @@ type nterm struct {
 	scrollPosRel   int64
 	scrollSpd      int64
 
-	gridTiles [][]GridTile
+	glyphGrid *GlyphGrid
 
 	activeCmd *Cmd
 	Settings  *Settings
@@ -115,11 +115,6 @@ const (
 	// How many lines to move per scroll
 	defaultScrollSpd = 1
 )
-
-type GridTile struct {
-	glyph rune
-	color *gglm.Vec4
-}
 
 var (
 	drawGrid      bool
@@ -155,7 +150,7 @@ func main() {
 		win:       win,
 		rend:      rend,
 		imguiInfo: nmageimgui.NewImGUI(),
-		FontSize:  40,
+		FontSize:  24,
 
 		Lines: ring.NewBuffer[Line](defaultLineBufSize),
 
@@ -220,7 +215,8 @@ func (nt *nterm) Init() {
 
 	w, h := nt.win.SDLWin.GetSize()
 	// p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/tajawal-regular-var.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
-	nt.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(nt.FontSize), DPI: nt.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	// nt.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(nt.FontSize), DPI: nt.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	nt.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/CascadiaMono-Regular.ttf", &truetype.Options{Size: float64(nt.FontSize), DPI: nt.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
@@ -241,8 +237,12 @@ func (nt *nterm) Init() {
 	nt.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
 	nt.HandleWindowResize()
 
-	//Set initial cursor pos
+	// Set initial cursor pos
 	nt.lastCmdCharPos.SetY(nt.GlyphRend.Atlas.LineHeight)
+
+	// Init glyph grid
+	gridWidth, gridHeight := nt.GridSize()
+	nt.glyphGrid = NewGlyphGrid(uint(gridWidth), uint(gridHeight))
 }
 
 func (nt *nterm) Update() {
@@ -258,7 +258,7 @@ func (nt *nterm) Update() {
 	}
 
 	//Font sizing
-	oldFont := nt.FontSize
+	oldFontSize := nt.FontSize
 	fontSizeChanged := false
 	if input.KeyClicked(sdl.K_KP_PLUS) {
 		nt.FontSize += 2
@@ -272,10 +272,12 @@ func (nt *nterm) Update() {
 
 		err := nt.GlyphRend.SetFace(&truetype.Options{Size: float64(nt.FontSize), DPI: nt.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting})
 		if err != nil {
-			nt.FontSize = oldFont
+			nt.FontSize = oldFontSize
 			fmt.Println("Failed to update font face. Err: " + err.Error())
 		} else {
 			glyphs.SaveImgToPNG(nt.GlyphRend.Atlas.Img, "./debug-atlas.png")
+			gridWidth, gridHeight := nt.GridSize()
+			nt.glyphGrid = NewGlyphGrid(uint(gridWidth), uint(gridHeight))
 			fmt.Println("New font size:", nt.FontSize, "; New texture size:", nt.GlyphRend.Atlas.Img.Rect.Max.X)
 		}
 	}
@@ -322,17 +324,38 @@ func (nt *nterm) MainUpdate() {
 	nt.SepLinePos.SetY(2 * nt.GlyphRend.Atlas.LineHeight)
 
 	// Draw textBuf
+	nt.glyphGrid.Clear()
 	gw, gh := nt.GridSize()
 	v1, v2 := nt.textBuf.ViewsFromToRelIndex(uint64(nt.scrollPosRel), uint64(nt.scrollPosRel)+uint64(gw*gh))
 
 	nt.lastCmdCharPos.Data = gglm.NewVec3(0, float32(nt.GlyphRend.ScreenHeight)-nt.GlyphRend.Atlas.LineHeight, 0).Data
-	nt.lastCmdCharPos.Data = nt.DrawTextAnsiCodes(v1, *nt.lastCmdCharPos).Data
-	nt.lastCmdCharPos.Data = nt.DrawTextAnsiCodes(v2, *nt.lastCmdCharPos).Data
+	nt.DrawTextAnsiCodesOnGlyphGrid(v1)
+	nt.DrawTextAnsiCodesOnGlyphGrid(v2)
+
+	for y := 0; y < len(nt.glyphGrid.Tiles); y++ {
+
+		row := nt.glyphGrid.Tiles[y]
+		for x := 0; x < len(row); x++ {
+
+			g := row[x]
+			if g.Glyph == utf8.RuneError {
+				continue
+			}
+			nt.GlyphRend.OptValues.BgColor.Data = g.BgColor.Data
+			nt.lastCmdCharPos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos([]rune{g.Glyph}, nt.lastCmdCharPos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), 2*nt.GlyphRend.Atlas.LineHeight), &g.FgColor).Data
+		}
+	}
+	nt.GlyphRend.OptValues.BgColor.Data = nt.Settings.DefaultBgColor.Data
 
 	// Draw cmd buf
 	nt.lastCmdCharPos.SetX(0)
 	nt.lastCmdCharPos.SetY(nt.SepLinePos.Y() - nt.GlyphRend.Atlas.LineHeight)
 	nt.lastCmdCharPos.Data = nt.SyntaxHighlightAndDraw(nt.cmdBuf[:nt.cmdBufLen], *nt.lastCmdCharPos).Data
+
+	if input.KeyClicked(sdl.K_F4) {
+		nt.glyphGrid.Print()
+		println(nt.glyphGrid.SizeX, nt.glyphGrid.SizeY)
+	}
 }
 
 func (nt *nterm) ReadInputs() {
@@ -394,33 +417,13 @@ func (nt *nterm) ReadInputs() {
 	}
 }
 
-func (nt *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
+func (nt *nterm) DrawTextAnsiCodesOnGlyphGrid(bs []byte) {
 
 	currFgColor := nt.Settings.DefaultFgColor
 	currBgColor := nt.Settings.DefaultBgColor
 
 	draw := func(rs []rune) {
-
-		nt.GlyphRend.OptValues.BgColor.Data = currBgColor.Data
-
-		startIndex := 0
-		for i := 0; i < len(rs); i++ {
-
-			r := rs[i]
-
-			// @PERF We could probably use bytes.IndexByte here
-			if r == '\n' {
-				pos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), 2*nt.GlyphRend.Atlas.LineHeight), &currFgColor).Data
-				pos.SetX(0)
-				pos.AddY(-nt.GlyphRend.Atlas.LineHeight)
-				startIndex = i + 1
-				continue
-			}
-		}
-
-		if startIndex < len(rs) {
-			pos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), 2*nt.GlyphRend.Atlas.LineHeight), &currFgColor).Data
-		}
+		nt.glyphGrid.Write(rs, &currFgColor, &currBgColor)
 	}
 
 	for {
@@ -457,8 +460,6 @@ func (nt *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 		// Advance beyond the code chars
 		bs = bs[index+len(code):]
 	}
-
-	return pos
 }
 
 func (nt *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
@@ -858,9 +859,6 @@ func (nt *nterm) HandleWindowResize() {
 	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 20)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
 	nt.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
-
-	gridWidth, gridHeight := nt.GridSize()
-	nt.gridTiles = make([][]GridTile, gridWidth*gridHeight)
 }
 
 func (nt *nterm) WriteToTextBuf(text []byte) {
