@@ -114,32 +114,33 @@ var (
 	// AnsiCSIStringBytesLen = len(AnsiCSIStringBytes)
 )
 
-type AnsiCodeOptions int64
+type AnsiCodePayloadType int32
 
 const (
-	AnsiCodeOptions_ColorFg AnsiCodeOptions = 1 << iota
-	AnsiCodeOptions_ColorBg
-	AnsiCodeOptions_ColorDefault
+	AnsiCodePayloadType_Unknown AnsiCodePayloadType = iota
+	AnsiCodePayloadType_ColorFg
+	AnsiCodePayloadType_ColorBg
+	AnsiCodePayloadType_Reset
 
-	AnsiCodeOptions_CursorOffset
-	AnsiCodeOptions_CursorAbs
-	AnsiCodeOptions_LineOffset
-	AnsiCodeOptions_LineAbs
-	AnsiCodeOptions_ScrollOffset
-
-	// This is at the bottom so the above iota starts at 0
-	AnsiCodeOptions_Unknown AnsiCodeOptions = 0
+	AnsiCodePayloadType_CursorOffset
+	AnsiCodePayloadType_CursorAbs
+	AnsiCodePayloadType_LineOffset
+	AnsiCodePayloadType_LineAbs
+	AnsiCodePayloadType_ScrollOffset
 )
 
-func (a AnsiCodeOptions) HasOptions(opts AnsiCodeOptions) bool {
-	return a&opts != 0
+func (a AnsiCodePayloadType) HasOption(opt AnsiCodePayloadType) bool {
+	return a == opt
+}
+
+type AnsiCodeInfoPayload struct {
+	Info gglm.Vec4
+	Type AnsiCodePayloadType
 }
 
 type AnsiCodeInfo struct {
-	Type CSIType
-	// When type is CSIType_SGR and the code is reset info1.X=-1
-	Info1   gglm.Vec4
-	Options AnsiCodeOptions
+	Type    CSIType
+	Payload []AnsiCodeInfoPayload
 }
 
 func NextAnsiCode(arr []byte) (index int, code []byte) {
@@ -232,7 +233,7 @@ func InfoFromAnsiCode(code []byte) (info AnsiCodeInfo) {
 
 	case 'm':
 		info.Type = CSIType_SGR
-		ParseSGRArgs(&info, args)
+		info.Payload = ParseSGRArgs(args)
 	case 'A':
 		info.Type = CSIType_CUU
 	case 'B':
@@ -270,32 +271,37 @@ func InfoFromAnsiCode(code []byte) (info AnsiCodeInfo) {
 	return info
 }
 
-func ParseSGRArgs(info *AnsiCodeInfo, args []byte) {
+func ParseSGRArgs(args []byte) (payload []AnsiCodeInfoPayload) {
+
+	payload = make([]AnsiCodeInfoPayload, 0, 1)
 
 	// @TODO should we trim spaces?
 	splitArgs := bytes.Split(args, []byte{';'})
 	for _, a := range splitArgs {
 
 		if len(a) == 0 || a[0] == byte('0') {
-			info.Info1.SetX(-1)
-			info.Options |= AnsiCodeOptions_ColorFg
-			continue
+			payload = append(payload, AnsiCodeInfoPayload{
+				Type: AnsiCodePayloadType_Reset,
+			})
+			break
 		}
 
 		// @TODO We can't use this setup of one info field because one ansi code can have many settings.
 		// For example, it can set Fg+Bg at once. So we need info per option.
 		intCode := getSgrIntCodeFromBytes(a)
 		if intCode >= 30 && intCode <= 37 || intCode >= 90 && intCode <= 97 {
-
-			info.Info1 = ColorFromSgrCode(intCode)
-			info.Options |= AnsiCodeOptions_ColorFg
+			payload = append(payload, AnsiCodeInfoPayload{
+				Info: ColorFromSgrCode(intCode),
+				Type: AnsiCodePayloadType_ColorFg,
+			})
 			continue
 		}
 
 		if intCode >= 40 && intCode <= 47 || intCode >= 100 && intCode <= 107 {
-
-			info.Info1 = ColorFromSgrCode(intCode)
-			info.Options |= AnsiCodeOptions_ColorBg
+			payload = append(payload, AnsiCodeInfoPayload{
+				Info: ColorFromSgrCode(intCode),
+				Type: AnsiCodePayloadType_ColorBg,
+			})
 			continue
 		}
 
@@ -303,6 +309,8 @@ func ParseSGRArgs(info *AnsiCodeInfo, args []byte) {
 		// @TODO Support 256 and RGB colors
 		println("Code not supported yet: " + fmt.Sprint(intCode))
 	}
+
+	return payload
 }
 
 func getSgrIntCodeFromBytes(bs []byte) (code int) {
@@ -350,7 +358,7 @@ func ColorFromSgrCode(code int) gglm.Vec4 {
 	case Ansi_Bg_Black:
 		fallthrough
 	case Ansi_Fg_Black:
-		return gglm.Vec4{}
+		return gglm.Vec4{Data: [4]float32{0, 0, 0, 1}}
 
 	case Ansi_Bg_Red:
 		fallthrough

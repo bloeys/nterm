@@ -444,22 +444,25 @@ func (nt *nterm) DrawTextAnsiCodesOnGlyphGrid(bs []byte) {
 		before := bytesToRunes(bs[:index])
 		draw(before)
 
-		//Apply code
-		info := ansi.InfoFromAnsiCode(code)
-		if info.Options.HasOptions(ansi.AnsiCodeOptions_ColorFg) {
+		//Apply codes
+		ansiCodeInfo := ansi.InfoFromAnsiCode(code)
+		// fmt.Printf("Info: %+v\n", ansiCodeInfo)
+		for i := 0; i < len(ansiCodeInfo.Payload); i++ {
 
-			if info.Info1.X() == -1 {
+			payload := &ansiCodeInfo.Payload[i]
+
+			if payload.Type.HasOption(ansi.AnsiCodePayloadType_Reset) {
 				currFgColor = nt.Settings.DefaultFgColor
-			} else {
-				currFgColor = info.Info1
-			}
-		}
-
-		if info.Options.HasOptions(ansi.AnsiCodeOptions_ColorBg) {
-			if info.Info1.X() == -1 {
 				currBgColor = nt.Settings.DefaultBgColor
-			} else {
-				currBgColor = info.Info1
+				break
+			}
+
+			if payload.Type.HasOption(ansi.AnsiCodePayloadType_ColorFg) {
+				currFgColor = payload.Info
+				println("settings fg color to", payload.Info.String())
+			} else if payload.Type.HasOption(ansi.AnsiCodePayloadType_ColorBg) {
+				currBgColor = payload.Info
+				println("settings bg color to", payload.Info.String())
 			}
 		}
 
