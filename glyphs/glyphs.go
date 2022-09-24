@@ -319,10 +319,7 @@ func (gr *GlyphRend) ScreenPosToGridPos(x, y float32) (gridX, gridY float32) {
 func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
 
 	r := run.Runes[i]
-	if r == ' ' {
-		pos.AddX(gr.Atlas.SpaceAdvance)
-		return
-	} else if r == '\t' {
+	if r == '\t' {
 		pos.AddX(gr.Atlas.SpaceAdvance * float32(gr.SpacesPerTab))
 		return
 	}
