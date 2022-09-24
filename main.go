@@ -324,13 +324,18 @@ func (nt *nterm) MainUpdate() {
 	nt.SepLinePos.SetY(2 * nt.GlyphRend.Atlas.LineHeight)
 
 	// Draw textBuf
-	nt.glyphGrid.Clear()
+	nt.glyphGrid.ClearAll()
+	nt.glyphGrid.SetCursor(0, 0)
+
 	gw, gh := nt.GridSize()
 	v1, v2 := nt.textBuf.ViewsFromToRelIndex(uint64(nt.scrollPosRel), uint64(nt.scrollPosRel)+uint64(gw*gh))
-
 	nt.lastCmdCharPos.Data = gglm.NewVec3(0, float32(nt.GlyphRend.ScreenHeight)-nt.GlyphRend.Atlas.LineHeight, 0).Data
+
 	nt.DrawTextAnsiCodesOnGlyphGrid(v1)
 	nt.DrawTextAnsiCodesOnGlyphGrid(v2)
+	nt.glyphGrid.ClearRow(nt.glyphGrid.SizeY - 1)
+	nt.glyphGrid.ClearRow(nt.glyphGrid.SizeY - 2)
+	nt.glyphGrid.ClearRow(nt.glyphGrid.SizeY - 3)
 
 	for y := 0; y < len(nt.glyphGrid.Tiles); y++ {
 
@@ -419,6 +424,7 @@ func (nt *nterm) ReadInputs() {
 
 func (nt *nterm) DrawTextAnsiCodesOnGlyphGrid(bs []byte) {
 
+	// @TODO: We should remember color state even if the ansi codes are out of view
 	currFgColor := nt.Settings.DefaultFgColor
 	currBgColor := nt.Settings.DefaultBgColor
 

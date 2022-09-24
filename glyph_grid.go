@@ -38,7 +38,19 @@ func (gg *GlyphGrid) Write(rs []rune, fgColor *gglm.Vec4, bgColor *gglm.Vec4) {
 	}
 }
 
-func (gg *GlyphGrid) Clear() {
+func (gg *GlyphGrid) ClearRow(rowIndex uint) {
+
+	if rowIndex >= gg.SizeY {
+		panic(fmt.Sprintf("passed row index of %d is larger or equal than grid Y size of %d\n", rowIndex, gg.SizeY))
+	}
+
+	row := gg.Tiles[rowIndex]
+	for x := 0; x < len(row); x++ {
+		row[x].Glyph = utf8.RuneError
+	}
+}
+
+func (gg *GlyphGrid) ClearAll() {
 
 	for y := 0; y < len(gg.Tiles); y++ {
 		row := gg.Tiles[y]
@@ -46,8 +58,6 @@ func (gg *GlyphGrid) Clear() {
 			row[x].Glyph = utf8.RuneError
 		}
 	}
-
-	gg.SetCursor(0, 0)
 }
 
 func (gg *GlyphGrid) SetCursor(x, y uint) {
