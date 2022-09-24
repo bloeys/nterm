@@ -91,9 +91,7 @@ type nterm struct {
 	scrollPosRel   int64
 	scrollSpd      int64
 
-	CellCountX int64
-	CellCountY int64
-	CellCount  int64
+	gridTiles [][]GridTile
 
 	activeCmd *Cmd
 	Settings  *Settings
@@ -118,6 +116,11 @@ const (
 	defaultScrollSpd = 1
 )
 
+type GridTile struct {
+	glyph rune
+	color *gglm.Vec4
+}
+
 var (
 	drawGrid      bool
 	drawManyLines = false
@@ -128,6 +131,8 @@ var (
 	xOff float32 = 0
 	yOff float32 = 0
 )
+
+// @TODO: We should 'draw' and apply ansi operations on an in-mem grid and send the final grid for rendering
 
 func main() {
 
@@ -192,90 +197,90 @@ func main() {
 	}
 }
 
-func (p *nterm) handleSDLEvent(e sdl.Event) {
+func (nt *nterm) handleSDLEvent(e sdl.Event) {
 
 	switch e := e.(type) {
 
 	case *sdl.TextInputEvent:
-		p.WriteToCmdBuf([]rune(e.GetText()))
+		nt.WriteToCmdBuf([]rune(e.GetText()))
 	case *sdl.WindowEvent:
 		if e.Event == sdl.WINDOWEVENT_SIZE_CHANGED {
-			p.HandleWindowResize()
+			nt.HandleWindowResize()
 		}
 	}
 }
 
-func (p *nterm) Init() {
+func (nt *nterm) Init() {
 
 	dpi, _, _, err := sdl.GetDisplayDPI(0)
 	if err != nil {
 		panic("Failed to get display DPI. Err: " + err.Error())
 	}
-	fmt.Printf("DPI: %f, font size: %d\n", dpi, p.FontSize)
+	fmt.Printf("DPI: %f, font size: %d\n", dpi, nt.FontSize)
 
-	w, h := p.win.SDLWin.GetSize()
+	w, h := nt.win.SDLWin.GetSize()
 	// p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/tajawal-regular-var.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
-	p.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
+	nt.GlyphRend, err = glyphs.NewGlyphRend("./res/fonts/alm-fixed.ttf", &truetype.Options{Size: float64(nt.FontSize), DPI: nt.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting}, w, h)
 	if err != nil {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
 
-	p.GlyphRend.OptValues.BgColor = gglm.NewVec4(0, 0, 0, 0)
-	p.GlyphRend.SetOpts(glyphs.GlyphRendOpt_BgColor)
+	nt.GlyphRend.OptValues.BgColor = gglm.NewVec4(0, 0, 0, 0)
+	nt.GlyphRend.SetOpts(glyphs.GlyphRendOpt_BgColor)
 
 	// if consts.Mode_Debug {
 	// glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
 	// }
 
 	//Load resources
-	p.gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
+	nt.gridMesh, err = meshes.NewMesh("grid", "./res/models/quad.obj", 0)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	p.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
-	p.HandleWindowResize()
+	nt.gridMat = materials.NewMaterial("grid", "./res/shaders/grid.glsl")
+	nt.HandleWindowResize()
 
 	//Set initial cursor pos
-	p.lastCmdCharPos.SetY(p.GlyphRend.Atlas.LineHeight)
+	nt.lastCmdCharPos.SetY(nt.GlyphRend.Atlas.LineHeight)
 }
 
-func (p *nterm) Update() {
+func (nt *nterm) Update() {
 
-	p.frameStartTime = time.Now()
+	nt.frameStartTime = time.Now()
 
 	if input.IsQuitClicked() || input.KeyClicked(sdl.K_ESCAPE) {
 		engine.Quit()
 	}
 
 	if consts.Mode_Debug {
-		p.DebugUpdate()
+		nt.DebugUpdate()
 	}
 
 	//Font sizing
-	oldFont := p.FontSize
+	oldFont := nt.FontSize
 	fontSizeChanged := false
 	if input.KeyClicked(sdl.K_KP_PLUS) {
-		p.FontSize += 2
+		nt.FontSize += 2
 		fontSizeChanged = true
 	} else if input.KeyClicked(sdl.K_KP_MINUS) {
-		p.FontSize -= 2
+		nt.FontSize -= 2
 		fontSizeChanged = true
 	}
 
 	if fontSizeChanged {
 
-		err := p.GlyphRend.SetFace(&truetype.Options{Size: float64(p.FontSize), DPI: p.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting})
+		err := nt.GlyphRend.SetFace(&truetype.Options{Size: float64(nt.FontSize), DPI: nt.Dpi, SubPixelsX: subPixelX, SubPixelsY: subPixelY, Hinting: hinting})
 		if err != nil {
-			p.FontSize = oldFont
+			nt.FontSize = oldFont
 			fmt.Println("Failed to update font face. Err: " + err.Error())
 		} else {
-			glyphs.SaveImgToPNG(p.GlyphRend.Atlas.Img, "./debug-atlas.png")
-			fmt.Println("New font size:", p.FontSize, "; New texture size:", p.GlyphRend.Atlas.Img.Rect.Max.X)
+			glyphs.SaveImgToPNG(nt.GlyphRend.Atlas.Img, "./debug-atlas.png")
+			fmt.Println("New font size:", nt.FontSize, "; New texture size:", nt.GlyphRend.Atlas.Img.Rect.Max.X)
 		}
 	}
 
-	p.MainUpdate()
+	nt.MainUpdate()
 }
 
 func (nt *nterm) MainUpdate() {
@@ -389,14 +394,14 @@ func (nt *nterm) ReadInputs() {
 	}
 }
 
-func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
+func (nt *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
-	currFgColor := p.Settings.DefaultFgColor
-	currBgColor := p.Settings.DefaultBgColor
+	currFgColor := nt.Settings.DefaultFgColor
+	currBgColor := nt.Settings.DefaultBgColor
 
 	draw := func(rs []rune) {
 
-		p.GlyphRend.OptValues.BgColor.Data = currBgColor.Data
+		nt.GlyphRend.OptValues.BgColor.Data = currBgColor.Data
 
 		startIndex := 0
 		for i := 0; i < len(rs); i++ {
@@ -405,16 +410,16 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 			// @PERF We could probably use bytes.IndexByte here
 			if r == '\n' {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currFgColor).Data
+				pos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:i], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), 2*nt.GlyphRend.Atlas.LineHeight), &currFgColor).Data
 				pos.SetX(0)
-				pos.AddY(-p.GlyphRend.Atlas.LineHeight)
+				pos.AddY(-nt.GlyphRend.Atlas.LineHeight)
 				startIndex = i + 1
 				continue
 			}
 		}
 
 		if startIndex < len(rs) {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(p.GlyphRend.ScreenWidth), 2*p.GlyphRend.Atlas.LineHeight), &currFgColor).Data
+			pos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos(rs[startIndex:], &pos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), 2*nt.GlyphRend.Atlas.LineHeight), &currFgColor).Data
 		}
 	}
 
@@ -435,7 +440,7 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 		if info.Options.HasOptions(ansi.AnsiCodeOptions_ColorFg) {
 
 			if info.Info1.X() == -1 {
-				currFgColor = p.Settings.DefaultFgColor
+				currFgColor = nt.Settings.DefaultFgColor
 			} else {
 				currFgColor = info.Info1
 			}
@@ -443,7 +448,7 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 
 		if info.Options.HasOptions(ansi.AnsiCodeOptions_ColorBg) {
 			if info.Info1.X() == -1 {
-				currBgColor = p.Settings.DefaultBgColor
+				currBgColor = nt.Settings.DefaultBgColor
 			} else {
 				currBgColor = info.Info1
 			}
@@ -456,11 +461,11 @@ func (p *nterm) DrawTextAnsiCodes(bs []byte, pos gglm.Vec3) gglm.Vec3 {
 	return pos
 }
 
-func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
+func (nt *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 
 	startIndex := 0
 	startPos := pos.Clone()
-	currColor := &p.Settings.DefaultFgColor
+	currColor := &nt.Settings.DefaultFgColor
 
 	inSingleString := false
 	inDoubleString := false
@@ -474,9 +479,9 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 		// to the middle of the text not the start as it uses the start X position of the second half.
 		// So to get correct new line handling we handle newlines here
 		case '\n':
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
+			pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
 			pos.SetX(startPos.X())
-			pos.AddY(-p.GlyphRend.Atlas.LineHeight)
+			pos.AddY(-nt.GlyphRend.Atlas.LineHeight)
 			startIndex = i + 1
 			continue
 
@@ -487,18 +492,18 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 			}
 
 			if !inDoubleString {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
+				pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
 
 				startIndex = i
 				inDoubleString = true
-				currColor = &p.Settings.StringColor
+				currColor = &nt.Settings.StringColor
 				continue
 			}
 
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, currColor).Data
+			pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, currColor).Data
 			startIndex = i + 1
 			inDoubleString = false
-			currColor = &p.Settings.DefaultFgColor
+			currColor = &nt.Settings.DefaultFgColor
 
 		case '\'':
 			if inDoubleString {
@@ -506,72 +511,72 @@ func (p *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 			}
 
 			if !inSingleString {
-				pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
+				pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i], &pos, currColor).Data
 
 				startIndex = i
 				inSingleString = true
-				currColor = &p.Settings.StringColor
+				currColor = &nt.Settings.StringColor
 				continue
 			}
 
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, &p.Settings.StringColor).Data
+			pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:i+1], &pos, &nt.Settings.StringColor).Data
 			startIndex = i + 1
 			inSingleString = false
-			currColor = &p.Settings.DefaultFgColor
+			currColor = &nt.Settings.DefaultFgColor
 		}
 	}
 
 	if startIndex < len(text) {
 		if inDoubleString || inSingleString {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.StringColor).Data
+			pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &nt.Settings.StringColor).Data
 		} else {
-			pos.Data = p.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &p.Settings.DefaultFgColor).Data
+			pos.Data = nt.GlyphRend.DrawTextOpenGLAbs(text[startIndex:], &pos, &nt.Settings.DefaultFgColor).Data
 		}
 	}
 
 	return pos
 }
 
-func (p *nterm) DeletePrevChar() {
+func (nt *nterm) DeletePrevChar() {
 
-	if p.cursorCharIndex == 0 || p.cmdBufLen == 0 {
+	if nt.cursorCharIndex == 0 || nt.cmdBufLen == 0 {
 		return
 	}
 
-	copy(p.cmdBuf[p.cursorCharIndex-1:], p.cmdBuf[p.cursorCharIndex:])
+	copy(nt.cmdBuf[nt.cursorCharIndex-1:], nt.cmdBuf[nt.cursorCharIndex:])
 
-	p.cmdBufLen--
-	p.cursorCharIndex--
+	nt.cmdBufLen--
+	nt.cursorCharIndex--
 }
 
-func (p *nterm) DeleteNextChar() {
+func (nt *nterm) DeleteNextChar() {
 
-	if p.cmdBufLen == 0 || p.cursorCharIndex == p.cmdBufLen {
+	if nt.cmdBufLen == 0 || nt.cursorCharIndex == nt.cmdBufLen {
 		return
 	}
 
-	copy(p.cmdBuf[p.cursorCharIndex:], p.cmdBuf[p.cursorCharIndex+1:])
+	copy(nt.cmdBuf[nt.cursorCharIndex:], nt.cmdBuf[nt.cursorCharIndex+1:])
 
-	p.cmdBufLen--
+	nt.cmdBufLen--
 }
 
-func (p *nterm) HandleReturn() {
+func (nt *nterm) HandleReturn() {
 
-	cmdRunes := p.cmdBuf[:p.cmdBufLen]
-	p.cmdBufLen = 0
-	p.cursorCharIndex = 0
+	cmdRunes := nt.cmdBuf[:nt.cmdBufLen]
+	nt.cmdBufLen = 0
+	nt.cursorCharIndex = 0
 
 	cmdStr := string(cmdRunes)
 	cmdBytes := []byte(cmdStr)
-	p.WriteToTextBuf(cmdBytes)
+	nt.WriteToTextBuf(cmdBytes)
 
-	if p.activeCmd != nil {
+	if nt.activeCmd != nil {
 
 		// println("Wrote:", string(cmdBytes))
-		_, err := p.activeCmd.Stdin.Write(cmdBytes)
+		_, err := nt.activeCmd.Stdin.Write(cmdBytes)
 		if err != nil {
-			p.WriteToTextBuf([]byte(fmt.Sprintf("Writing to stdin pipe of '%s' failed. Error: %s\n", p.activeCmd.C.Path, err.Error())))
-			p.ClearActiveCmd()
+			nt.WriteToTextBuf([]byte(fmt.Sprintf("Writing to stdin pipe of '%s' failed. Error: %s\n", nt.activeCmd.C.Path, err.Error())))
+			nt.ClearActiveCmd()
 			return
 		}
 
@@ -594,29 +599,29 @@ func (p *nterm) HandleReturn() {
 
 	outPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		p.WriteToTextBuf([]byte(fmt.Sprintf("Creating stdout pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
+		nt.WriteToTextBuf([]byte(fmt.Sprintf("Creating stdout pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {
-		p.WriteToTextBuf([]byte(fmt.Sprintf("Creating stdin pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
+		nt.WriteToTextBuf([]byte(fmt.Sprintf("Creating stdin pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 
 	errPipe, err := cmd.StderrPipe()
 	if err != nil {
-		p.WriteToTextBuf([]byte(fmt.Sprintf("Creating stderr pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
+		nt.WriteToTextBuf([]byte(fmt.Sprintf("Creating stderr pipe of '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
 
 	startTime := time.Now()
 	err = cmd.Start()
 	if err != nil {
-		p.WriteToTextBuf([]byte(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error())))
+		nt.WriteToTextBuf([]byte(fmt.Sprintf("Running '%s' failed. Error: %s\n", cmdName, err.Error())))
 		return
 	}
-	p.activeCmd = &Cmd{
+	nt.activeCmd = &Cmd{
 		C:      cmd,
 		Stdout: outPipe,
 		Stdin:  inPipe,
@@ -630,18 +635,18 @@ func (p *nterm) HandleReturn() {
 			fmt.Printf("Cmd '%s' took %0.2fs\n", cmdName, time.Since(startTime).Seconds())
 		}()
 
-		defer p.ClearActiveCmd()
+		defer nt.ClearActiveCmd()
 		buf := make([]byte, 4*1024)
-		for p.activeCmd != nil {
+		for nt.activeCmd != nil {
 
-			readBytes, err := p.activeCmd.Stdout.Read(buf)
+			readBytes, err := nt.activeCmd.Stdout.Read(buf)
 			if err != nil {
 
 				if err == io.EOF {
 					break
 				}
 
-				p.WriteToTextBuf([]byte("Stdout pipe failed. Error: " + err.Error()))
+				nt.WriteToTextBuf([]byte("Stdout pipe failed. Error: " + err.Error()))
 				return
 			}
 
@@ -651,7 +656,7 @@ func (p *nterm) HandleReturn() {
 
 			// @Todo We need to parse ansi codes as data is coming in to update the drawing settings (e.g. color)
 			b := buf[:readBytes]
-			p.WriteToTextBuf(b)
+			nt.WriteToTextBuf(b)
 			// println("Read:", string(buf[:readBytes]))
 		}
 	}()
@@ -660,16 +665,16 @@ func (p *nterm) HandleReturn() {
 	go func() {
 
 		buf := make([]byte, 1024)
-		for p.activeCmd != nil {
+		for nt.activeCmd != nil {
 
-			readBytes, err := p.activeCmd.Stderr.Read(buf)
+			readBytes, err := nt.activeCmd.Stderr.Read(buf)
 			if err != nil {
 
 				if err == io.EOF {
 					break
 				}
 
-				p.WriteToTextBuf([]byte("Stderr pipe failed. Error: " + err.Error()))
+				nt.WriteToTextBuf([]byte("Stderr pipe failed. Error: " + err.Error()))
 				return
 			}
 
@@ -677,12 +682,12 @@ func (p *nterm) HandleReturn() {
 				continue
 			}
 
-			p.WriteToTextBuf(buf[:readBytes])
+			nt.WriteToTextBuf(buf[:readBytes])
 		}
 	}()
 }
 
-func (p *nterm) ParseLines(bs []byte) {
+func (nt *nterm) ParseLines(bs []byte) {
 
 	// @TODO We should virtually break lines when they are too long
 	checkedBytes := uint64(0)
@@ -696,57 +701,57 @@ func (p *nterm) ParseLines(bs []byte) {
 		bs = bs[index+1:]
 
 		checkedBytes += uint64(index + 1)
-		p.LineBeingParsed.EndIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
-		p.WriteLine(&p.LineBeingParsed)
-		p.LineBeingParsed.StartIndex_WriteCount = p.textBuf.WrittenElements + checkedBytes
+		nt.LineBeingParsed.EndIndex_WriteCount = nt.textBuf.WrittenElements + checkedBytes
+		nt.WriteLine(&nt.LineBeingParsed)
+		nt.LineBeingParsed.StartIndex_WriteCount = nt.textBuf.WrittenElements + checkedBytes
 	}
 }
 
-func (p *nterm) WriteLine(l *Line) {
+func (nt *nterm) WriteLine(l *Line) {
 	assert.T(l.StartIndex_WriteCount <= l.EndIndex_WriteCount, "Invalid line: %+v\n", l)
-	p.Lines.Write(*l)
+	nt.Lines.Write(*l)
 }
 
-func (p *nterm) ClearActiveCmd() {
+func (nt *nterm) ClearActiveCmd() {
 
-	if p.activeCmd == nil {
+	if nt.activeCmd == nil {
 		return
 	}
 
-	p.activeCmd = nil
+	nt.activeCmd = nil
 }
 
-func (p *nterm) DrawCursor() {
+func (nt *nterm) DrawCursor() {
 
 	//Position cursor by placing it at the end of the drawn characters then walking backwards
-	pos := p.lastCmdCharPos.Clone()
+	pos := nt.lastCmdCharPos.Clone()
 
-	pos.AddY(p.GlyphRend.Atlas.LineHeight * 0.5)
-	for i := clamp(p.cmdBufLen, 0, int64(len(p.cmdBuf))); i > p.cursorCharIndex; i-- {
+	pos.AddY(nt.GlyphRend.Atlas.LineHeight * 0.5)
+	for i := clamp(nt.cmdBufLen, 0, int64(len(nt.cmdBuf))); i > nt.cursorCharIndex; i-- {
 
-		if p.cmdBuf[i] == '\n' {
-			pos.AddY(p.GlyphRend.Atlas.LineHeight)
+		if nt.cmdBuf[i] == '\n' {
+			pos.AddY(nt.GlyphRend.Atlas.LineHeight)
 			continue
 		}
-		pos.AddX(-p.GlyphRend.Atlas.SpaceAdvance)
+		pos.AddX(-nt.GlyphRend.Atlas.SpaceAdvance)
 	}
 
-	p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*p.GlyphRend.Atlas.SpaceAdvance, p.GlyphRend.Atlas.LineHeight, 1)), p.gridMat)
+	nt.rend.Draw(nt.gridMesh, gglm.NewTrMatId().Translate(pos).Scale(gglm.NewVec3(0.1*nt.GlyphRend.Atlas.SpaceAdvance, nt.GlyphRend.Atlas.LineHeight, 1)), nt.gridMat)
 }
 
 // GridSize returns how many cells horizontally (aka chars per line) and how many cells vertically (aka lines)
-func (p *nterm) GridSize() (w, h int64) {
-	w = int64(p.GlyphRend.ScreenWidth) / int64(p.GlyphRend.Atlas.SpaceAdvance)
-	h = int64(p.GlyphRend.ScreenHeight) / int64(p.GlyphRend.Atlas.LineHeight)
+func (nt *nterm) GridSize() (w, h int64) {
+	w = int64(nt.GlyphRend.ScreenWidth) / int64(nt.GlyphRend.Atlas.SpaceAdvance)
+	h = int64(nt.GlyphRend.ScreenHeight) / int64(nt.GlyphRend.Atlas.LineHeight)
 	return w, h
 }
 
-func (p *nterm) ScreenPosToGridPos(screenPos *gglm.Vec3) {
-	screenPos.SetX(FloorF32(screenPos.X() / p.GlyphRend.Atlas.SpaceAdvance))
-	screenPos.SetY(FloorF32(screenPos.Y() / p.GlyphRend.Atlas.LineHeight))
+func (nt *nterm) ScreenPosToGridPos(screenPos *gglm.Vec3) {
+	screenPos.SetX(FloorF32(screenPos.X() / nt.GlyphRend.Atlas.SpaceAdvance))
+	screenPos.SetY(FloorF32(screenPos.Y() / nt.GlyphRend.Atlas.LineHeight))
 }
 
-func (p *nterm) DebugUpdate() {
+func (nt *nterm) DebugUpdate() {
 
 	//Move text
 	var speed float32 = 1
@@ -768,24 +773,24 @@ func (p *nterm) DebugUpdate() {
 	}
 }
 
-func (p *nterm) Render() {
+func (nt *nterm) Render() {
 
-	defer p.GlyphRend.Draw()
+	defer nt.GlyphRend.Draw()
 
 	if consts.Mode_Debug {
-		p.DebugRender()
+		nt.DebugRender()
 
-		sizeX := float32(p.GlyphRend.ScreenWidth)
-		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, p.SepLinePos.Y(), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
+		sizeX := float32(nt.GlyphRend.ScreenWidth)
+		nt.rend.Draw(nt.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, nt.SepLinePos.Y(), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), nt.gridMat)
 	}
 
-	p.DrawCursor()
+	nt.DrawCursor()
 }
 
-func (p *nterm) DebugRender() {
+func (nt *nterm) DebugRender() {
 
 	if drawGrid {
-		p.DrawGrid()
+		nt.DrawGrid()
 	}
 
 	fps := int(timing.GetAvgFPS())
@@ -795,43 +800,43 @@ func (p *nterm) DebugRender() {
 		if drawManyLines {
 			const charsPerFrame = 500_000
 			for i := 0; i < charsPerFrame/charCount; i++ {
-				p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultFgColor)
+				nt.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(nt.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &nt.Settings.DefaultFgColor)
 			}
-			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
+			nt.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", charsPerFrame, " chars/s: ", fps*charsPerFrame))
 		} else {
 			charsPerFrame := float64(charCount)
-			p.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(p.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &p.Settings.DefaultFgColor)
-			p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
+			nt.GlyphRend.DrawTextOpenGLAbsString(str, gglm.NewVec3(xOff, float32(nt.GlyphRend.Atlas.LineHeight)*5+yOff, 0), &nt.Settings.DefaultFgColor)
+			nt.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps, " Draws/f: ", math.Ceil(charsPerFrame/glyphs.DefaultGlyphsPerBatch), " chars/f: ", int(charsPerFrame), " chars/s: ", fps*int(charsPerFrame)))
 		}
 	} else {
-		p.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps))
+		nt.win.SDLWin.SetTitle(fmt.Sprint("FPS: ", fps))
 	}
 }
 
-func (p *nterm) DrawGrid() {
+func (nt *nterm) DrawGrid() {
 
-	sizeX := float32(p.GlyphRend.ScreenWidth)
-	sizeY := float32(p.GlyphRend.ScreenHeight)
+	sizeX := float32(nt.GlyphRend.ScreenWidth)
+	sizeY := float32(nt.GlyphRend.ScreenHeight)
 
 	//columns
-	adv := p.GlyphRend.Atlas.SpaceAdvance
-	for i := 0; i < int(p.GlyphRend.ScreenWidth); i++ {
-		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(adv*float32(i), sizeY/2, 0)).Scale(gglm.NewVec3(1, sizeY, 1)), p.gridMat)
+	adv := nt.GlyphRend.Atlas.SpaceAdvance
+	for i := 0; i < int(nt.GlyphRend.ScreenWidth); i++ {
+		nt.rend.Draw(nt.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(adv*float32(i), sizeY/2, 0)).Scale(gglm.NewVec3(1, sizeY, 1)), nt.gridMat)
 	}
 
 	//rows
-	for i := int32(0); i < p.GlyphRend.ScreenHeight; i += int32(p.GlyphRend.Atlas.LineHeight) {
-		p.rend.Draw(p.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, float32(i), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), p.gridMat)
+	for i := int32(0); i < nt.GlyphRend.ScreenHeight; i += int32(nt.GlyphRend.Atlas.LineHeight) {
+		nt.rend.Draw(nt.gridMesh, gglm.NewTrMatId().Translate(gglm.NewVec3(sizeX/2, float32(i), 0)).Scale(gglm.NewVec3(sizeX, 1, 1)), nt.gridMat)
 	}
 }
 
-func (p *nterm) FrameEnd() {
-	assert.T(p.cursorCharIndex <= p.cmdBufLen, "Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", p.cursorCharIndex, p.cmdBufLen)
+func (nt *nterm) FrameEnd() {
+	assert.T(nt.cursorCharIndex <= nt.cmdBufLen, "Cursor char index is larger than cmdBufLen! You probablly forgot to move/reset the cursor index along with the buffer length somewhere. Cursor=%d, cmdBufLen=%d\n", nt.cursorCharIndex, nt.cmdBufLen)
 
-	if p.Settings.LimitFps {
+	if nt.Settings.LimitFps {
 
-		elapsed := time.Since(p.frameStartTime)
-		microSecondsPerFrame := int64(1 / float32(p.Settings.MaxFps) * 1000_000)
+		elapsed := time.Since(nt.frameStartTime)
+		microSecondsPerFrame := int64(1 / float32(nt.Settings.MaxFps) * 1000_000)
 
 		// Sleep time is reduced by a millisecond to compensate for the (nearly) inevitable over-sleeping that will happen.
 		timeToSleep := time.Duration((microSecondsPerFrame - elapsed.Microseconds()) * 1000)
@@ -843,42 +848,42 @@ func (p *nterm) FrameEnd() {
 	}
 }
 
-func (p *nterm) DeInit() {
+func (nt *nterm) DeInit() {
 }
 
-func (p *nterm) HandleWindowResize() {
-	w, h := p.win.SDLWin.GetSize()
-	p.GlyphRend.SetScreenSize(w, h)
+func (nt *nterm) HandleWindowResize() {
+	w, h := nt.win.SDLWin.GetSize()
+	nt.GlyphRend.SetScreenSize(w, h)
 
 	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 20)
 	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
-	p.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
+	nt.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
 
-	p.CellCountX, p.CellCountY = p.GridSize()
-	p.CellCount = p.CellCountX * p.CellCountY
+	gridWidth, gridHeight := nt.GridSize()
+	nt.gridTiles = make([][]GridTile, gridWidth*gridHeight)
 }
 
-func (p *nterm) WriteToTextBuf(text []byte) {
+func (nt *nterm) WriteToTextBuf(text []byte) {
 	// This is locked because running cmds are potentially writing to it same time we are
-	p.textBufMutex.Lock()
+	nt.textBufMutex.Lock()
 
-	p.ParseLines(text)
-	p.textBuf.Write(text...)
+	nt.ParseLines(text)
+	nt.textBuf.Write(text...)
 
-	p.textBufMutex.Unlock()
+	nt.textBufMutex.Unlock()
 }
 
-func (p *nterm) WriteToCmdBuf(text []rune) {
+func (nt *nterm) WriteToCmdBuf(text []rune) {
 
 	delta := int64(len(text))
-	newHeadPos := p.cmdBufLen + delta
+	newHeadPos := nt.cmdBufLen + delta
 	if newHeadPos <= defaultCmdBufSize {
 
-		copy(p.cmdBuf[p.cursorCharIndex+delta:], p.cmdBuf[p.cursorCharIndex:])
-		copy(p.cmdBuf[p.cursorCharIndex:], text)
+		copy(nt.cmdBuf[nt.cursorCharIndex+delta:], nt.cmdBuf[nt.cursorCharIndex:])
+		copy(nt.cmdBuf[nt.cursorCharIndex:], text)
 
-		p.cursorCharIndex += delta
-		p.cmdBufLen = newHeadPos
+		nt.cursorCharIndex += delta
+		nt.cmdBufLen = newHeadPos
 		return
 	}
 
