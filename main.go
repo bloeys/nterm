@@ -337,10 +337,9 @@ func (nt *nterm) MainUpdate() {
 
 	nt.DrawTextAnsiCodesOnGlyphGrid(v1)
 	nt.DrawTextAnsiCodesOnGlyphGrid(v2)
-	nt.glyphGrid.ClearRow(nt.glyphGrid.SizeY - 1)
-	nt.glyphGrid.ClearRow(nt.glyphGrid.SizeY - 2)
-	nt.glyphGrid.ClearRow(nt.glyphGrid.SizeY - 3)
+	nt.glyphGrid.Write(nt.cmdBuf[:nt.cmdBufLen], &nt.Settings.DefaultFgColor, &nt.Settings.DefaultBgColor)
 
+	// @TODO: This should probably be its own function to blit the glyph grid
 	for y := 0; y < len(nt.glyphGrid.Tiles); y++ {
 
 		row := nt.glyphGrid.Tiles[y]
@@ -355,11 +354,6 @@ func (nt *nterm) MainUpdate() {
 		}
 	}
 	nt.GlyphRend.OptValues.BgColor.Data = nt.Settings.DefaultBgColor.Data
-
-	// Draw cmd buf
-	nt.lastCmdCharPos.SetX(0)
-	nt.lastCmdCharPos.SetY(nt.SepLinePos.Y() - nt.GlyphRend.Atlas.LineHeight)
-	nt.lastCmdCharPos.Data = nt.SyntaxHighlightAndDraw(nt.cmdBuf[:nt.cmdBufLen], *nt.lastCmdCharPos).Data
 
 	if input.KeyClicked(sdl.K_F4) {
 		nt.glyphGrid.Print()
@@ -473,6 +467,7 @@ func (nt *nterm) DrawTextAnsiCodesOnGlyphGrid(bs []byte) {
 	}
 }
 
+// @TODO: Rewrite to draw on glyph grid
 func (nt *nterm) SyntaxHighlightAndDraw(text []rune, pos gglm.Vec3) gglm.Vec3 {
 
 	startIndex := 0
