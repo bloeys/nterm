@@ -333,31 +333,42 @@ func (nt *nterm) MainUpdate() {
 
 	gw, gh := nt.GridSize()
 	v1, v2 := nt.textBuf.ViewsFromToRelIndex(uint64(nt.scrollPosRel), uint64(nt.scrollPosRel)+uint64(gw*gh))
-	nt.lastCmdCharPos.Data = gglm.NewVec3(0, float32(nt.GlyphRend.ScreenHeight)-nt.GlyphRend.Atlas.LineHeight, 0).Data
 
 	nt.DrawTextAnsiCodesOnGlyphGrid(v1)
 	nt.DrawTextAnsiCodesOnGlyphGrid(v2)
 	nt.glyphGrid.Write(nt.cmdBuf[:nt.cmdBufLen], &nt.Settings.DefaultFgColor, &nt.Settings.DefaultBgColor)
 
-	// @TODO: This should probably be its own function to blit the glyph grid
+	nt.DrawGlyphGrid()
+
+	if input.KeyClicked(sdl.K_F4) {
+		nt.glyphGrid.Print()
+		println(nt.glyphGrid.SizeX, nt.glyphGrid.SizeY)
+	}
+}
+
+func (nt *nterm) DrawGlyphGrid() {
+
+	// @BUG: Not sure what is wrong yet, but it seems letters are being written to grid
+	// correctly (and we can print to console), and they are being sent to glyphRend correctly, but some don't display??
+	top := float32(nt.GlyphRend.ScreenHeight) - nt.GlyphRend.Atlas.LineHeight
+	nt.lastCmdCharPos.Data = gglm.NewVec3(0, top, 0).Data
+	if input.KeyClicked(sdl.K_F7) {
+		print("")
+	}
+
 	for y := 0; y < len(nt.glyphGrid.Tiles); y++ {
 
 		row := nt.glyphGrid.Tiles[y]
 		for x := 0; x < len(row); x++ {
 
-			g := row[x]
+			g := &row[x]
 			if g.Glyph == utf8.RuneError {
 				continue
 			}
-			nt.GlyphRend.OptValues.BgColor.Data = g.BgColor.Data
-			nt.lastCmdCharPos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos([]rune{g.Glyph}, nt.lastCmdCharPos, gglm.NewVec3(0, 0, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), 2*nt.GlyphRend.Atlas.LineHeight), &g.FgColor).Data
-		}
-	}
-	nt.GlyphRend.OptValues.BgColor.Data = nt.Settings.DefaultBgColor.Data
 
-	if input.KeyClicked(sdl.K_F4) {
-		nt.glyphGrid.Print()
-		println(nt.glyphGrid.SizeX, nt.glyphGrid.SizeY)
+			nt.GlyphRend.OptValues.BgColor.Data = g.BgColor.Data
+			nt.lastCmdCharPos.Data = nt.GlyphRend.DrawTextOpenGLAbsRectWithStartPos([]rune{g.Glyph}, nt.lastCmdCharPos, gglm.NewVec3(0, top, 0), gglm.NewVec2(float32(nt.GlyphRend.ScreenWidth), nt.GlyphRend.Atlas.LineHeight), &g.FgColor).Data
+		}
 	}
 }
 
