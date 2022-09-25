@@ -273,6 +273,7 @@ func InfoFromAnsiCode(code []byte) (info AnsiCodeInfo) {
 
 func ParseSGRArgs(args []byte) (payload []AnsiCodeInfoPayload) {
 
+	// @PERF: Too many allocations here, once per code :/
 	payload = make([]AnsiCodeInfoPayload, 0, 1)
 
 	// @TODO should we trim spaces?
@@ -283,7 +284,7 @@ func ParseSGRArgs(args []byte) (payload []AnsiCodeInfoPayload) {
 			payload = append(payload, AnsiCodeInfoPayload{
 				Type: AnsiCodePayloadType_Reset,
 			})
-			break
+			continue
 		}
 
 		// @TODO We can't use this setup of one info field because one ansi code can have many settings.

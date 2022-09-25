@@ -16,7 +16,7 @@
 
 # Custom
 *.png
-*.cpu
+*.pprof
 
 1gb.txt
 1gb.bin

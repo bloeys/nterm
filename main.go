@@ -180,7 +180,7 @@ func main() {
 	p.win.SDLWin.GLSwap()
 
 	if consts.Mode_Debug {
-		var pf, _ = os.Create("pprof.cpu")
+		var pf, _ = os.Create("cpu.pprof")
 		defer pf.Close()
 		pprof.StartCPUProfile(pf)
 	}
@@ -189,6 +189,10 @@ func main() {
 
 	if consts.Mode_Debug {
 		pprof.StopCPUProfile()
+
+		var heapProfile, _ = os.Create("heap.pprof")
+		defer heapProfile.Close()
+		pprof.WriteHeapProfile(heapProfile)
 	}
 }
 
