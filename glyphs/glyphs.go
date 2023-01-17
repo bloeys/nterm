@@ -777,11 +777,10 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 		return nil, err
 	}
 
-	// Multiple VBOs under one VAO, one VBO for vertex data (vertex attrib 0), and one VBO for forground data (vertex attrib 1+)
+	// In each of these buffers we use one the mesh VBO for vertex position data (vertex attrib 0), and the other VBO created here for the rest.
+	// We split bg/fg into separate buffers and draw calls to ensure bg is drawn first, because order of drawing instanced items sent in the same
+	// call is not guaranteed
 	gr.GlyphFgInstancedBuf = buffers.NewBuffer()
-
-	// Background data uses another VAO because the bg buffer has the same type (ARRAY_BUFFER) as fg data, and two
-	// buffers of the same type can't go under VAO+attrib array locations
 	gr.GlyphBgInstancedBuf = buffers.NewBuffer()
 
 	// Create instanced buffers and set their vertex attributes.
