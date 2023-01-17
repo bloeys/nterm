@@ -1,7 +1,6 @@
 package glyphs
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"unicode"
@@ -45,14 +44,18 @@ type GlyphRend struct {
 	Atlas    *FontAtlas
 	AtlasTex *assets.Texture
 
-	GlyphMesh    *meshes.Mesh
-	InstancedBuf buffers.Buffer
-	GlyphMat     *materials.Material
-	TextRunsBuf  []TextRun
+	GlyphMesh           *meshes.Mesh
+	GlyphFgInstancedBuf buffers.Buffer
+	GlyphBgInstancedBuf buffers.Buffer
+	GlyphMat            *materials.Material
+	TextRunsBuf         []TextRun
 
-	GlyphCount uint32
-	//Luckily slices still work, so for now we will use our slice as an array (no appending)
-	GlyphVBO []float32
+	//Luckily slices still work with go-opengl, so for now we will use our slice as an array (no appending)
+	GlyphFgCount uint32
+	GlyphFgVBO   []float32
+
+	GlyphBgCount uint32
+	GlyphBgVBO   []float32
 
 	ScreenWidth  int32
 	ScreenHeight int32
@@ -82,17 +85,17 @@ func (gr *GlyphRend) HasOpt(opt GlyphRendOpt) bool {
 	return gr.Opts&opt != 0
 }
 
-//DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
-//screenPos is in the range [0,1], where (0,0) is the bottom left.
-//Color is RGBA in the range [0,1].
+// DrawTextOpenGLAbs prepares text that will be drawn on the next GlyphRend.Draw call.
+// screenPos is in the range [0,1], where (0,0) is the bottom left.
+// Color is RGBA in the range [0,1].
 func (gr *GlyphRend) DrawTextOpenGL01String(text string, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
 	screenPos.Set(screenPos.X()*float32(gr.ScreenWidth), screenPos.Y()*float32(gr.ScreenHeight), screenPos.Z())
 	return gr.DrawTextOpenGLAbsString(text, screenPos, color)
 }
 
-//DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
-//screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
-//Color is RGBA in the range [0,1].
+// DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
+// screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
+// Color is RGBA in the range [0,1].
 func (gr *GlyphRend) DrawTextOpenGLAbsString(text string, screenPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
 	return gr.DrawTextOpenGLAbs([]rune(text), screenPos, color)
 }
@@ -102,9 +105,9 @@ func (gr *GlyphRend) DrawTextOpenGL01(text []rune, screenPos *gglm.Vec3, color *
 	return gr.DrawTextOpenGLAbs(text, screenPos, color)
 }
 
-//DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
-//screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
-//Color is RGBA in the range [0,1].
+// DrawTextOpenGLAbsString prepares text that will be drawn on the next GlyphRend.Draw call.
+// screenPos is in the range ([0,ScreenWidth],[0,ScreenHeight]) where (0,0) is bottom left.
+// Color is RGBA in the range [0,1].
 func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, startPos *gglm.Vec3, color *gglm.Vec4) gglm.Vec3 {
 
 	runs := gr.TextRunsBuf[:]
@@ -115,7 +118,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, startPos *gglm.Vec3, color *
 
 	drawPos := startPos.Clone()
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-	bufIndex := gr.GlyphCount * floatsPerGlyph
+	fgBufIndex, bgBufIndex := gr.getFgAndBgBufIndices()
 	for runIndex := 0; runIndex < len(runs); runIndex++ {
 
 		run := &runs[runIndex]
@@ -130,7 +133,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, startPos *gglm.Vec3, color *
 					drawPos.SetXYZ(startPos.X(), drawPos.Y()-lineHeightF32, startPos.Z())
 				}
 
-				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &fgBufIndex, &bgBufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
@@ -150,7 +153,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbs(text []rune, startPos *gglm.Vec3, color *
 					drawPos.SetXYZ(startPos.X(), drawPos.Y()-lineHeightF32, startPos.Z())
 				}
 
-				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &fgBufIndex, &bgBufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
@@ -181,7 +184,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRect(text []rune, rectTopLeft *gglm.Vec3, 
 
 	drawPos := rectTopLeft.Clone()
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-	bufIndex := gr.GlyphCount * floatsPerGlyph
+	fgBufIndex, bgBufIndex := gr.getFgAndBgBufIndices()
 	for runIndex := 0; runIndex < len(runs); runIndex++ {
 
 		run := &runs[runIndex]
@@ -195,7 +198,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRect(text []rune, rectTopLeft *gglm.Vec3, 
 					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
 				}
 
-				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &fgBufIndex, &bgBufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
@@ -215,7 +218,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRect(text []rune, rectTopLeft *gglm.Vec3, 
 					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
 				}
 
-				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &fgBufIndex, &bgBufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
@@ -246,7 +249,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRectWithStartPos(text []rune, startPos, re
 
 	drawPos := startPos.Clone()
 	lineHeightF32 := float32(gr.Atlas.LineHeight)
-	bufIndex := gr.GlyphCount * floatsPerGlyph
+	fgBufIndex, bgBufIndex := gr.getFgAndBgBufIndices()
 	for runIndex := 0; runIndex < len(runs); runIndex++ {
 
 		run := &runs[runIndex]
@@ -260,7 +263,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRectWithStartPos(text []rune, startPos, re
 					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
 				}
 
-				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &fgBufIndex, &bgBufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
@@ -280,7 +283,7 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRectWithStartPos(text []rune, startPos, re
 					drawPos.SetXYZ(rectTopLeft.X(), drawPos.Y()-lineHeightF32, rectTopLeft.Z())
 				}
 
-				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &bufIndex)
+				gr.drawRune(run, i, prevRune, drawPos, color, lineHeightF32, &fgBufIndex, &bgBufIndex)
 				prevRune = run.Runes[i]
 
 				//Wrap
@@ -301,6 +304,10 @@ func (gr *GlyphRend) DrawTextOpenGLAbsRectWithStartPos(text []rune, startPos, re
 	return *drawPos
 }
 
+func (gr *GlyphRend) getFgAndBgBufIndices() (fgBufIndex, bgBufIndex uint32) {
+	return gr.GlyphFgCount * floatsPerGlyph, gr.GlyphBgCount * floatsPerGlyph
+}
+
 // @Debug
 var PrintPositions bool
 
@@ -316,7 +323,7 @@ func (gr *GlyphRend) ScreenPosToGridPos(x, y float32) (gridX, gridY float32) {
 	return gridX, gridY
 }
 
-func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, bufIndex *uint32) {
+func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3, color *gglm.Vec4, lineHeightF32 float32, glyphFgBufIndex, glyphBgBufIndex *uint32) {
 
 	r := run.Runes[i]
 	if r == '\t' {
@@ -358,76 +365,76 @@ func (gr *GlyphRend) drawRune(run *TextRun, i int, prevRune rune, pos *gglm.Vec3
 
 	//Add the glyph information to the vbo
 	if gr.HasOpt(GlyphRendOpt_BgColor) {
-		//UV
-		gr.GlyphVBO[*bufIndex+0] = -1
-		gr.GlyphVBO[*bufIndex+1] = -1
-		*bufIndex += 2
+		// UV
+		gr.GlyphBgVBO[*glyphBgBufIndex+0] = -1
+		gr.GlyphBgVBO[*glyphBgBufIndex+1] = -1
+		*glyphBgBufIndex += 2
 
 		//UVSize
-		gr.GlyphVBO[*bufIndex+0] = 0
-		gr.GlyphVBO[*bufIndex+1] = 0
-		*bufIndex += 2
+		gr.GlyphBgVBO[*glyphBgBufIndex+0] = 0
+		gr.GlyphBgVBO[*glyphBgBufIndex+1] = 0
+		*glyphBgBufIndex += 2
 
 		//Color
-		gr.GlyphVBO[*bufIndex+0] = gr.OptValues.BgColor.R()
-		gr.GlyphVBO[*bufIndex+1] = gr.OptValues.BgColor.G()
-		gr.GlyphVBO[*bufIndex+2] = gr.OptValues.BgColor.B()
-		gr.GlyphVBO[*bufIndex+3] = gr.OptValues.BgColor.A()
-		*bufIndex += 4
+		gr.GlyphBgVBO[*glyphBgBufIndex+0] = gr.OptValues.BgColor.R()
+		gr.GlyphBgVBO[*glyphBgBufIndex+1] = gr.OptValues.BgColor.G()
+		gr.GlyphBgVBO[*glyphBgBufIndex+2] = gr.OptValues.BgColor.B()
+		gr.GlyphBgVBO[*glyphBgBufIndex+3] = gr.OptValues.BgColor.A()
+		*glyphBgBufIndex += 4
 
 		//Model Pos
-		gr.GlyphVBO[*bufIndex+0] = pos.X()
-		gr.GlyphVBO[*bufIndex+1] = pos.Y()
-		gr.GlyphVBO[*bufIndex+2] = pos.Z()
-		*bufIndex += 3
+		gr.GlyphBgVBO[*glyphBgBufIndex+0] = pos.X()
+		gr.GlyphBgVBO[*glyphBgBufIndex+1] = pos.Y()
+		gr.GlyphBgVBO[*glyphBgBufIndex+2] = pos.Z()
+		*glyphBgBufIndex += 3
 
 		//Model Scale
-		gr.GlyphVBO[*bufIndex+0] = gr.Atlas.SpaceAdvance
-		gr.GlyphVBO[*bufIndex+1] = lineHeightF32
-		*bufIndex += 2
+		gr.GlyphBgVBO[*glyphBgBufIndex+0] = gr.Atlas.SpaceAdvance
+		gr.GlyphBgVBO[*glyphBgBufIndex+1] = lineHeightF32
+		*glyphBgBufIndex += 2
 
-		gr.GlyphCount++
-		if gr.GlyphCount == DefaultGlyphsPerBatch {
+		gr.GlyphBgCount++
+		if gr.GlyphBgCount == DefaultGlyphsPerBatch {
 			gr.Draw()
-			*bufIndex = 0
+			*glyphBgBufIndex = 0
 		}
 	}
 
 	//UV
-	gr.GlyphVBO[*bufIndex+0] = g.U
-	gr.GlyphVBO[*bufIndex+1] = g.V
-	*bufIndex += 2
+	gr.GlyphFgVBO[*glyphFgBufIndex+0] = g.U
+	gr.GlyphFgVBO[*glyphFgBufIndex+1] = g.V
+	*glyphFgBufIndex += 2
 
 	//UVSize
-	gr.GlyphVBO[*bufIndex+0] = g.SizeU
-	gr.GlyphVBO[*bufIndex+1] = g.SizeV
-	*bufIndex += 2
+	gr.GlyphFgVBO[*glyphFgBufIndex+0] = g.SizeU
+	gr.GlyphFgVBO[*glyphFgBufIndex+1] = g.SizeV
+	*glyphFgBufIndex += 2
 
 	//Color
-	gr.GlyphVBO[*bufIndex+0] = color.R()
-	gr.GlyphVBO[*bufIndex+1] = color.G()
-	gr.GlyphVBO[*bufIndex+2] = color.B()
-	gr.GlyphVBO[*bufIndex+3] = color.A()
-	*bufIndex += 4
+	gr.GlyphFgVBO[*glyphFgBufIndex+0] = color.R()
+	gr.GlyphFgVBO[*glyphFgBufIndex+1] = color.G()
+	gr.GlyphFgVBO[*glyphFgBufIndex+2] = color.B()
+	gr.GlyphFgVBO[*glyphFgBufIndex+3] = color.A()
+	*glyphFgBufIndex += 4
 
 	//Model Pos
-	gr.GlyphVBO[*bufIndex+0] = drawPos.X()
-	gr.GlyphVBO[*bufIndex+1] = drawPos.Y()
-	gr.GlyphVBO[*bufIndex+2] = drawPos.Z()
-	*bufIndex += 3
+	gr.GlyphFgVBO[*glyphFgBufIndex+0] = drawPos.X()
+	gr.GlyphFgVBO[*glyphFgBufIndex+1] = drawPos.Y()
+	gr.GlyphFgVBO[*glyphFgBufIndex+2] = drawPos.Z()
+	*glyphFgBufIndex += 3
 
 	//Model Scale
-	gr.GlyphVBO[*bufIndex+0] = g.SizeU
-	gr.GlyphVBO[*bufIndex+1] = g.SizeV
-	*bufIndex += 2
+	gr.GlyphFgVBO[*glyphFgBufIndex+0] = g.SizeU
+	gr.GlyphFgVBO[*glyphFgBufIndex+1] = g.SizeV
+	*glyphFgBufIndex += 2
 
 	pos.AddX(g.Advance)
 
 	//If we fill the buffer we issue a draw call
-	gr.GlyphCount++
-	if gr.GlyphCount == DefaultGlyphsPerBatch {
+	gr.GlyphFgCount++
+	if gr.GlyphFgCount == DefaultGlyphsPerBatch {
 		gr.Draw()
-		*bufIndex = 0
+		*glyphFgBufIndex = 0
 	}
 }
 
@@ -511,7 +518,7 @@ func (gr *GlyphRend) GetTextRuns(rs []rune, textRunsBuf *[]TextRun) {
 	}
 }
 
-//GlyphFromRunes does shaping where it selects the proper rune based (e.g. end Alef) on the surrounding runes
+// GlyphFromRunes does shaping where it selects the proper rune based (e.g. end Alef) on the surrounding runes
 func GlyphFromRunes(glyphTable map[rune]FontAtlasGlyph, curr, prev, next rune) FontAtlasGlyph {
 
 	//PERF: Map access times are absolute garbage to the point that ~85%+ of the runtime of this func
@@ -602,26 +609,41 @@ func GlyphFromRunes(glyphTable map[rune]FontAtlasGlyph, curr, prev, next rune) F
 
 func (gr *GlyphRend) Draw() {
 
-	if gr.GlyphCount == 0 {
+	if gr.GlyphFgCount == 0 && gr.GlyphBgCount == 0 {
 		return
 	}
 
-	gl.BindVertexArray(gr.InstancedBuf.VAOID)
-	gl.BindBuffer(gl.ARRAY_BUFFER, gr.InstancedBuf.BufID)
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, int(gr.GlyphCount*floatsPerGlyph)*4, gl.Ptr(&gr.GlyphVBO[:gr.GlyphCount*floatsPerGlyph][0]))
+	// Set common GPU settings for both Fg and Bg
 	gr.GlyphMat.Bind()
+	gl.Disable(gl.DEPTH_TEST) //We need to disable depth testing so that nearby characters don't occlude each other
 
-	//We need to disable depth testing so that nearby characters don't occlude each other
-	gl.Disable(gl.DEPTH_TEST)
+	// We must draw Bg BEFORE foreground because they write to the same pixels.
+	// Drawing everything in one instance buffer/batch doesn't work because the order in which instances are drawn in a batch is not guaranteed,
+	// which means a background might be drawn on top of a foreground glyph.
+	if gr.GlyphBgCount > 0 {
 
-	gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphMesh.Buf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), int32(gr.GlyphCount))
-	gr.GlyphCount = 0
+		gl.BindVertexArray(gr.GlyphBgInstancedBuf.VAOID)
+		gl.BindBuffer(gl.ARRAY_BUFFER, gr.GlyphBgInstancedBuf.BufID)
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, int(gr.GlyphBgCount*floatsPerGlyph)*4, gl.Ptr(&gr.GlyphBgVBO[:gr.GlyphBgCount*floatsPerGlyph][0]))
+
+		gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphBgInstancedBuf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), int32(gr.GlyphBgCount))
+		gr.GlyphBgCount = 0
+	}
+
+	if gr.GlyphFgCount > 0 {
+		gl.BindVertexArray(gr.GlyphFgInstancedBuf.VAOID)
+		gl.BindBuffer(gl.ARRAY_BUFFER, gr.GlyphFgInstancedBuf.BufID)
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, int(gr.GlyphFgCount*floatsPerGlyph)*4, gl.Ptr(&gr.GlyphFgVBO[:gr.GlyphFgCount*floatsPerGlyph][0]))
+
+		gl.DrawElementsInstanced(gl.TRIANGLES, gr.GlyphFgInstancedBuf.IndexBufCount, gl.UNSIGNED_INT, gl.PtrOffset(0), int32(gr.GlyphFgCount))
+		gr.GlyphFgCount = 0
+	}
 
 	gl.Enable(gl.DEPTH_TEST)
 }
 
-//SetFace updates the underlying font atlas used by the glyph renderer.
-//The current atlas is unchanged if there is an error
+// SetFace updates the underlying font atlas used by the glyph renderer.
+// The current atlas is unchanged if there is an error
 func (gr *GlyphRend) SetFace(fontOptions *truetype.Options) error {
 
 	face := truetype.NewFace(gr.Atlas.Font, fontOptions)
@@ -647,10 +669,10 @@ func (gr *GlyphRend) SetFontFromFile(fontFile string, fontOptions *truetype.Opti
 	return nil
 }
 
-//updateFontAtlasTexture uploads the texture representing the font atlas to the GPU
-//and updates the GlyphRend.AtlasTex field.
+// updateFontAtlasTexture uploads the texture representing the font atlas to the GPU
+// and updates the GlyphRend.AtlasTex field.
 //
-//Any old textures are deleted
+// Any old textures are deleted
 func (gr *GlyphRend) updateFontAtlasTexture() error {
 
 	//Clean old texture and load new texture
@@ -704,8 +726,11 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 	}
 
 	gr := &GlyphRend{
-		GlyphCount:   0,
-		GlyphVBO:     make([]float32, floatsPerGlyph*DefaultGlyphsPerBatch),
+		GlyphFgCount: 0,
+		GlyphFgVBO:   make([]float32, floatsPerGlyph*DefaultGlyphsPerBatch),
+
+		GlyphBgCount: 0,
+		GlyphBgVBO:   make([]float32, floatsPerGlyph*DefaultGlyphsPerBatch),
 		TextRunsBuf:  make([]TextRun, 0, 20),
 		SpacesPerTab: 4,
 
@@ -752,63 +777,81 @@ func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, s
 		return nil, err
 	}
 
-	//Create instanced buf and set its instanced attributes.
-	//Multiple VBOs under one VAO, one VBO for vertex data, and one VBO for instanced data.
-	gr.InstancedBuf = buffers.Buffer{
-		VAOID: gr.GlyphMesh.Buf.VAOID,
+	// Multiple VBOs under one VAO, one VBO for vertex data (vertex attrib 0), and one VBO for forground data (vertex attrib 1+)
+	gr.GlyphFgInstancedBuf = buffers.NewBuffer()
+
+	// Background data uses another VAO because the bg buffer has the same type (ARRAY_BUFFER) as fg data, and two
+	// buffers of the same type can't go under VAO+attrib array locations
+	gr.GlyphBgInstancedBuf = buffers.NewBuffer()
+
+	// Create instanced buffers and set their vertex attributes.
+	glyphMeshVertPosLayoutEle := gr.GlyphMesh.Buf.GetLayout()[0]
+	setupGlyphInstanceBuf := func(instanceBuf *buffers.Buffer, vbo *[]float32) {
+
+		instanceBuf.SetLayout(
+			buffers.Element{ElementType: buffers.DataTypeVec2}, //UV0
+			buffers.Element{ElementType: buffers.DataTypeVec2}, //UVSize
+			buffers.Element{ElementType: buffers.DataTypeVec4}, //Color
+			buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelPos
+			buffers.Element{ElementType: buffers.DataTypeVec2}, //ModelScale
+		)
+
+		// Use the index buffer based on the mesh data
+		instanceBuf.IndexBufID = gr.GlyphMesh.Buf.IndexBufID
+		instanceBuf.SetIndexBufData([]uint32{
+			0, 1, 2,
+			1, 3, 2,
+		})
+
+		// Set index buf data unbinds at the end so we re-bind here
+		instanceBuf.Bind()
+
+		// Set vertex attribute zero to use the buffer of the glyph mesh, which contains onlt vertex positions.
+		// Since all instances have the same vertex positions we only send this data in the first vertex and all instances refer
+		// to the position information of the first vertex. This is done by setting an attrib divisor of zero for this attribute
+		gl.BindBuffer(gl.ARRAY_BUFFER, gr.GlyphMesh.Buf.BufID)
+		gl.EnableVertexAttribArray(0)
+		gl.VertexAttribPointer(0, glyphMeshVertPosLayoutEle.ElementType.CompCount(), glyphMeshVertPosLayoutEle.ElementType.GLType(), false, gr.GlyphMesh.Buf.Stride, gl.PtrOffset(glyphMeshVertPosLayoutEle.Offset))
+		gl.VertexAttribDivisor(0, 0)
+
+		// Set the rest of the vertex attributes to use the instance buffer
+		gl.BindBuffer(gl.ARRAY_BUFFER, instanceBuf.BufID)
+		layout := instanceBuf.GetLayout()
+
+		uvEle := layout[0]
+		gl.EnableVertexAttribArray(1)
+		gl.VertexAttribPointer(1, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, instanceBuf.Stride, gl.PtrOffset(uvEle.Offset))
+		gl.VertexAttribDivisor(1, 1)
+
+		uvSize := layout[1]
+		gl.EnableVertexAttribArray(2)
+		gl.VertexAttribPointer(2, uvSize.ElementType.CompCount(), uvSize.ElementType.GLType(), false, instanceBuf.Stride, gl.PtrOffset(uvSize.Offset))
+		gl.VertexAttribDivisor(2, 1)
+
+		colorEle := layout[2]
+		gl.EnableVertexAttribArray(3)
+		gl.VertexAttribPointer(3, colorEle.ElementType.CompCount(), colorEle.ElementType.GLType(), false, instanceBuf.Stride, gl.PtrOffset(colorEle.Offset))
+		gl.VertexAttribDivisor(3, 1)
+
+		posEle := layout[3]
+		gl.EnableVertexAttribArray(4)
+		gl.VertexAttribPointer(4, posEle.ElementType.CompCount(), posEle.ElementType.GLType(), false, instanceBuf.Stride, gl.PtrOffset(posEle.Offset))
+		gl.VertexAttribDivisor(4, 1)
+
+		scaleEle := layout[4]
+		gl.EnableVertexAttribArray(5)
+		gl.VertexAttribPointer(5, scaleEle.ElementType.CompCount(), scaleEle.ElementType.GLType(), false, instanceBuf.Stride, gl.PtrOffset(scaleEle.Offset))
+		gl.VertexAttribDivisor(5, 1)
+
+		//Fill buffer with zeros and set to dynamic so in the actual draw calls we use bufferSubData which makes things a lot faster
+		gl.BufferData(gl.ARRAY_BUFFER, len(*vbo)*4, gl.Ptr(&(*vbo)[0]), buffers.BufUsage_Dynamic.ToGL())
+
+		//Reset mesh layout because the instancedBuf setLayout over-wrote vertex attribute 0
+		gr.GlyphMesh.Buf.SetLayout(buffers.Element{ElementType: buffers.DataTypeVec3})
 	}
 
-	gl.GenBuffers(1, &gr.InstancedBuf.BufID)
-	if gr.InstancedBuf.BufID == 0 {
-		return nil, errors.New("failed to create OpenGL VBO buffer")
-	}
-
-	gr.InstancedBuf.SetLayout(
-		buffers.Element{ElementType: buffers.DataTypeVec2}, //UV0
-		buffers.Element{ElementType: buffers.DataTypeVec2}, //UVSize
-		buffers.Element{ElementType: buffers.DataTypeVec4}, //Color
-		buffers.Element{ElementType: buffers.DataTypeVec3}, //ModelPos
-		buffers.Element{ElementType: buffers.DataTypeVec2}, //ModelScale
-	)
-
-	gr.InstancedBuf.Bind()
-	gl.BindBuffer(gl.ARRAY_BUFFER, gr.InstancedBuf.BufID)
-	layout := gr.InstancedBuf.GetLayout()
-
-	//Instanced attributes
-	uvEle := layout[0]
-	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointer(1, uvEle.ElementType.CompCount(), uvEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(uvEle.Offset))
-	gl.VertexAttribDivisor(1, 1)
-
-	uvSize := layout[1]
-	gl.EnableVertexAttribArray(2)
-	gl.VertexAttribPointer(2, uvSize.ElementType.CompCount(), uvSize.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(uvSize.Offset))
-	gl.VertexAttribDivisor(2, 1)
-
-	colorEle := layout[2]
-	gl.EnableVertexAttribArray(3)
-	gl.VertexAttribPointer(3, colorEle.ElementType.CompCount(), colorEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(colorEle.Offset))
-	gl.VertexAttribDivisor(3, 1)
-
-	posEle := layout[3]
-	gl.EnableVertexAttribArray(4)
-	gl.VertexAttribPointer(4, posEle.ElementType.CompCount(), posEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(posEle.Offset))
-	gl.VertexAttribDivisor(4, 1)
-
-	scaleEle := layout[4]
-	gl.EnableVertexAttribArray(5)
-	gl.VertexAttribPointer(5, scaleEle.ElementType.CompCount(), scaleEle.ElementType.GLType(), false, gr.InstancedBuf.Stride, gl.PtrOffset(scaleEle.Offset))
-	gl.VertexAttribDivisor(5, 1)
-
-	//Fill buffer with zeros and set to dynamic so in the actual draw calls we use bufferSubData which makes things a lot faster
-	gl.BufferData(gl.ARRAY_BUFFER, len(gr.GlyphVBO)*4, gl.Ptr(&gr.GlyphVBO[0]), buffers.BufUsage_Dynamic.ToGL())
-
-	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-	gr.InstancedBuf.UnBind()
-
-	//Reset mesh layout because the instancedBuf setLayout over-wrote vertex attribute 0
-	gr.GlyphMesh.Buf.SetLayout(buffers.Element{ElementType: buffers.DataTypeVec3})
+	setupGlyphInstanceBuf(&gr.GlyphFgInstancedBuf, &gr.GlyphFgVBO)
+	setupGlyphInstanceBuf(&gr.GlyphBgInstancedBuf, &gr.GlyphBgVBO)
 
 	gr.SetScreenSize(screenWidth, screenHeight)
 

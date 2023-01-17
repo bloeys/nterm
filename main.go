@@ -225,7 +225,7 @@ func (nt *nterm) Init() {
 		panic("Failed to create atlas from font file. Err: " + err.Error())
 	}
 
-	nt.GlyphRend.OptValues.BgColor = gglm.NewVec4(0, 0, 0, 0)
+	nt.GlyphRend.OptValues.BgColor = &nt.Settings.DefaultBgColor
 	nt.GlyphRend.SetOpts(glyphs.GlyphRendOpt_BgColor)
 
 	// if consts.Mode_Debug {
@@ -314,8 +314,8 @@ func (nt *nterm) MainUpdate() {
 		}
 	}
 
-	// We might have way more chars than lines and so the first line might not start
-	// at the first char, but midway in the buffer, so we ensure that scrollPosRel
+	// Since we have more chars than lines the first line might not start
+	// at the first char but midway in the buffer, so we ensure that scrollPosRel
 	// starts at the first line
 	firstValidLineStartIndexRel := int64(nt.textBuf.RelIndexFromWriteCount(nt.firstValidLine.StartIndex_WriteCount))
 	if nt.scrollPosRel < firstValidLineStartIndexRel {
@@ -348,17 +348,13 @@ func (nt *nterm) MainUpdate() {
 
 func (nt *nterm) DrawGlyphGrid() {
 
-	// @BUG: Not sure what is wrong yet, but it seems letters are being written to grid
-	// correctly (and we can print to console), and they are being sent to glyphRend correctly, but some don't display??
 	top := float32(nt.GlyphRend.ScreenHeight) - nt.GlyphRend.Atlas.LineHeight
 	nt.lastCmdCharPos.Data = gglm.NewVec3(0, top, 0).Data
-	if input.KeyClicked(sdl.K_F7) {
-		print("")
-	}
 
 	for y := 0; y < len(nt.glyphGrid.Tiles); y++ {
 
 		row := nt.glyphGrid.Tiles[y]
+
 		for x := 0; x < len(row); x++ {
 
 			g := &row[x]
