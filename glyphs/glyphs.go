@@ -8,6 +8,7 @@ import (
 	"github.com/bloeys/gglm/gglm"
 	"github.com/bloeys/nmage/assets"
 	"github.com/bloeys/nmage/buffers"
+	"github.com/bloeys/nmage/camera"
 	"github.com/bloeys/nmage/materials"
 	"github.com/bloeys/nmage/meshes"
 	"github.com/bloeys/nterm/assert"
@@ -681,7 +682,7 @@ func (gr *GlyphRend) updateFontAtlasTexture() error {
 		gr.AtlasTex = nil
 	}
 
-	atlasTex, err := assets.LoadTextureInMemImg(gr.Atlas.Img, nil)
+	atlasTex, err := assets.LoadTextureInMemPngImg(gr.Atlas.Img, nil)
 	if err != nil {
 		return err
 	}
@@ -696,8 +697,6 @@ func (gr *GlyphRend) updateFontAtlasTexture() error {
 
 	//Update material
 	gr.GlyphMat.DiffuseTex = gr.AtlasTex.TexID
-	// gr.GlyphMat.SetUnifFloat32("spaceAdv", gr.Atlas.SpaceAdvance)
-	// gr.GlyphMat.SetUnifFloat32("lineHeight", gr.Atlas.LineHeight)
 
 	return nil
 }
@@ -707,12 +706,11 @@ func (gr *GlyphRend) SetScreenSize(screenWidth, screenHeight int32) {
 	gr.ScreenWidth = screenWidth
 	gr.ScreenHeight = screenHeight
 
-	//The projection matrix fits the screen size. This is needed so we can size and position characters correctly.
-	projMtx := gglm.Ortho(0, float32(screenWidth), float32(screenHeight), 0, 0.1, 20)
-	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
-	projViewMtx := projMtx.Mul(viewMtx)
+	//The camera is orthographic and fits the screen size exactly. This is needed so we can size and position characters correctly.
+	cam := camera.NewOrthographic(gglm.NewVec3(0, 0, 10), gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 1, 0), 0.1, 20, 0, float32(screenWidth), float32(screenHeight), 0)
+	projViewMtx := cam.ProjMat.Mul(&cam.ViewMat)
 
-	gr.GlyphMat.SetUnifMat4("projViewMat", &projViewMtx.Mat4)
+	gr.GlyphMat.SetUnifMat4("projViewMat", projViewMtx)
 }
 
 func NewGlyphRend(fontFile string, fontOptions *truetype.Options, screenWidth, screenHeight int32) (*GlyphRend, error) {

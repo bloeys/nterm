@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/bloeys/gglm/gglm"
+	"github.com/bloeys/nmage/camera"
 	"github.com/bloeys/nmage/engine"
 	"github.com/bloeys/nmage/input"
 	"github.com/bloeys/nmage/materials"
@@ -869,9 +870,9 @@ func (nt *nterm) HandleWindowResize() {
 	w, h := nt.win.SDLWin.GetSize()
 	nt.GlyphRend.SetScreenSize(w, h)
 
-	projMtx := gglm.Ortho(0, float32(w), float32(h), 0, 0.1, 20)
-	viewMtx := gglm.LookAt(gglm.NewVec3(0, 0, -10), gglm.NewVec3(0, 0, 0), gglm.NewVec3(0, 1, 0))
-	nt.gridMat.SetUnifMat4("projViewMat", &projMtx.Mul(viewMtx).Mat4)
+	cam := camera.NewOrthographic(gglm.NewVec3(0, 0, 10), gglm.NewVec3(0, 0, -1), gglm.NewVec3(0, 1, 0), 0.1, 20, 0, float32(w), float32(h), 0)
+	projViewMtx := cam.ProjMat.Mul(&cam.ViewMat)
+	nt.gridMat.SetUnifMat4("projViewMat", projViewMtx)
 }
 
 func (nt *nterm) WriteToTextBuf(text []byte) {
