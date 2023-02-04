@@ -115,6 +115,9 @@ const (
 
 	// How many lines to move per scroll
 	defaultScrollSpd = 1
+
+	unscaledWindowWidth  = 1280
+	unscaledWindowHeight = 720
 )
 
 var (
@@ -137,8 +140,11 @@ func main() {
 		panic("Failed to init engine. Err: " + err.Error())
 	}
 
+	// This scaling lets us respect the user's request for zoomed-in programs
+	dpiScaling := getDpiScaling()
+
 	rend := rend3dgl.NewRend3DGL()
-	win, err := engine.CreateOpenGLWindowCentered("nTerm", 1280, 720, engine.WindowFlags_ALLOW_HIGHDPI|engine.WindowFlags_RESIZABLE, rend)
+	win, err := engine.CreateOpenGLWindowCentered("nTerm", int32(unscaledWindowWidth*dpiScaling), int32(unscaledWindowHeight*dpiScaling), engine.WindowFlags_ALLOW_HIGHDPI|engine.WindowFlags_RESIZABLE, rend)
 	if err != nil {
 		panic("Failed to create window. Err: " + err.Error())
 	}
@@ -195,6 +201,40 @@ func main() {
 		defer heapProfile.Close()
 		pprof.WriteHeapProfile(heapProfile)
 	}
+}
+
+func getDpiScaling() float32 {
+
+	// Great read on DPI here: https://nlguillemot.wordpress.com/2016/12/11/high-dpi-rendering/
+
+	// The no-scaling DPI on different platforms (e.g. when scale=100% on windows)
+	var defaultDpi float32 = 96
+	if runtime.GOOS == "windows" {
+		defaultDpi = 96
+	} else if runtime.GOOS == "darwin" {
+		defaultDpi = 72
+	}
+
+	// Current DPI of the monitor
+	_, dpiHorizontal, _, err := sdl.GetDisplayDPI(0)
+	if err != nil {
+		dpiHorizontal = defaultDpi
+		fmt.Printf("Failed to get DPI with error '%s'. Using default DPI of '%f'\n", err.Error(), defaultDpi)
+	}
+
+	// Scaling factor (e.g. will be 1.25 for 125% scaling on windows)
+	dpiScaling := dpiHorizontal / defaultDpi
+
+	fmt.Printf(
+		"Default DPI=%f\nHorizontal DPI=%f\nDPI scaling=%f\nUnscaled window size (width, height)=(%d, %d)\nScaled window size (width, height)=(%d, %d)\n\n",
+		defaultDpi,
+		dpiHorizontal,
+		dpiScaling,
+		unscaledWindowWidth, unscaledWindowHeight,
+		int32(unscaledWindowWidth*dpiScaling), int32(unscaledWindowHeight*dpiScaling),
+	)
+
+	return dpiScaling
 }
 
 func (nt *nterm) handleSDLEvent(e sdl.Event) {
