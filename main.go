@@ -141,7 +141,7 @@ func main() {
 	}
 
 	// This scaling lets us respect the user's request for zoomed-in programs
-	dpiScaling := getDpiScaling()
+	dpiScaling := getDpiScaling(unscaledWindowWidth, unscaledWindowHeight)
 
 	rend := rend3dgl.NewRend3DGL()
 	win, err := engine.CreateOpenGLWindowCentered("nTerm", int32(unscaledWindowWidth*dpiScaling), int32(unscaledWindowHeight*dpiScaling), engine.WindowFlags_ALLOW_HIGHDPI|engine.WindowFlags_RESIZABLE, rend)
@@ -203,7 +203,7 @@ func main() {
 	}
 }
 
-func getDpiScaling() float32 {
+func getDpiScaling(unscaledWindowWidth, unscaledWindowHeight int32) float32 {
 
 	// Great read on DPI here: https://nlguillemot.wordpress.com/2016/12/11/high-dpi-rendering/
 
@@ -231,7 +231,7 @@ func getDpiScaling() float32 {
 		dpiHorizontal,
 		dpiScaling,
 		unscaledWindowWidth, unscaledWindowHeight,
-		int32(unscaledWindowWidth*dpiScaling), int32(unscaledWindowHeight*dpiScaling),
+		int32(float32(unscaledWindowWidth)*dpiScaling), int32(float32(unscaledWindowHeight)*dpiScaling),
 	)
 
 	return dpiScaling
