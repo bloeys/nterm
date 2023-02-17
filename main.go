@@ -131,7 +131,8 @@ var (
 	yOff float32 = 0
 )
 
-// @TODO: We should 'draw' and apply ansi operations on an in-mem grid and send the final grid for rendering
+// @TODO: Convert most operations to use glyphGrid instead of drawing directly to glyphRend
+// @TODO: Implement SDF glyph rendering
 
 func main() {
 

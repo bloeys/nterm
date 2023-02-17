@@ -41,12 +41,12 @@ type FontAtlasGlyph struct {
 	Advance  float32
 }
 
-//NewFontAtlasFromFile reads a TTF or TTC file and produces a font texture atlas containing
-//all its characters using the specified options. The atlas uses equally sized tiles
-//such that all characters use an equal horizontal/vertical on the atlas.
-//If the character is smaller than the tile then the rest of the tile is empty.
+// NewFontAtlasFromFile reads a TTF or TTC file and produces a font texture atlas containing
+// all its characters using the specified options. The atlas uses equally sized tiles
+// such that all characters use an equal horizontal/vertical on the atlas.
+// If the character is smaller than the tile then the rest of the tile is empty.
 //
-//Only monospaced fonts are supported
+// Only monospaced fonts are supported
 func NewFontAtlasFromFile(fontFile string, fontOptions *truetype.Options) (*FontAtlas, error) {
 
 	fBytes, err := os.ReadFile(fontFile)
@@ -129,12 +129,12 @@ func calcNeededAtlasSize(glyphs []rune, face font.Face, charPaddingXFixed, charP
 	return atlasSizeX, atlasSizeY
 }
 
-//NewFontAtlasFromFile uses the passed font to produce a font texture atlas containing
-//all its characters using the specified options. The atlas uses equally sized tiles
-//such that all characters use an equal horizontal/vertical on the atlas.
-//If the character is smaller than the tile then the rest of the tile is empty.
+// NewFontAtlasFromFile uses the passed font to produce a font texture atlas containing
+// all its characters using the specified options. The atlas uses equally sized tiles
+// such that all characters use an equal horizontal/vertical on the atlas.
+// If the character is smaller than the tile then the rest of the tile is empty.
 //
-//Only monospaced fonts are supported.
+// Only monospaced fonts are supported.
 func NewFontAtlasFromFont(f *truetype.Font, face font.Face, pointSize uint) (*FontAtlas, error) {
 
 	const maxAtlasSize = 8192
@@ -379,7 +379,7 @@ func SaveImgToPNG(img image.Image, file string) error {
 	return nil
 }
 
-//getGlyphRangesFromFont returns a list of ranges, each range is: [i][0]<=range<[i][1]
+// getGlyphRangesFromFont returns a list of ranges, each range is: [i][0]<=range<[i][1]
 func getGlyphRangesFromFont(f *truetype.Font) (ret [][2]rune) {
 
 	isRuneInPrivateUseArea := func(r rune) bool {
@@ -411,7 +411,7 @@ func getGlyphRangesFromFont(f *truetype.Font) (ret [][2]rune) {
 	return ret
 }
 
-//getGlyphsFromRuneRanges takes ranges of runes and produces an array of all the runes in these ranges
+// getGlyphsFromRuneRanges takes ranges of runes and produces an array of all the runes in these ranges
 func getGlyphsFromRuneRanges(ranges [][2]rune) []rune {
 
 	out := make([]rune, 0)
